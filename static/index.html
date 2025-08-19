@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Public Speaking Coach | Video Analysis & Feedback</title>
+    <meta name="description" content="Upload your speaking video for comprehensive AI analysis. Get feedback on emotion, eye contact, vocal variety, body language, and speaking fluency to improve your public speaking skills.">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    
+    <style>
+        /* Custom CSS variables for design system */
+        :root {
+            --background: 240 10% 3.9%;
+            --foreground: 0 0% 98%;
+            --card: 240 10% 3.9%;
+            --card-foreground: 0 0% 98%;
+            --primary: 263 70% 50%;
+            --primary-foreground: 0 0% 98%;
+            --secondary: 240 3.7% 15.9%;
+            --secondary-foreground: 0 0% 98%;
+            --muted: 240 3.7% 15.9%;
+            --muted-foreground: 240 5% 64.9%;
+            --accent: 240 3.7% 15.9%;
+            --accent-foreground: 0 0% 98%;
+            --destructive: 0 62.8% 30.6%;
+            --destructive-foreground: 0 0% 98%;
+            --border: 240 3.7% 15.9%;
+            --input: 240 3.7% 15.9%;
+            --ring: 263 70% 50%;
+            --success: 142 76% 36%;
+            --warning: 48 96% 53%;
+            --gradient-primary: linear-gradient(135deg, hsl(263, 70%, 50%), hsl(229, 84%, 60%));
+            --gradient-secondary: linear-gradient(135deg, hsl(240, 10%, 3.9%), hsl(263, 70%, 50%));
+            --gradient-accent: linear-gradient(90deg, hsl(263, 70%, 50%), hsl(199, 89%, 48%));
+            --shadow-glow: 0 0 40px hsl(263 70% 50% / 0.3);
+            --shadow-card: 0 10px 30px -10px hsl(0 0% 0% / 0.3);
+            --radius: 0.75rem;
+        }
+
+        body {
+            background: var(--gradient-secondary);
+            color: hsl(var(--foreground));
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .gradient-text {
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .card-glow {
+            box-shadow: var(--shadow-card);
+            border: 1px solid hsl(var(--border));
+            background: hsl(var(--card) / 0.8);
+            backdrop-filter: blur(12px);
+            border-radius: var(--radius);
+        }
+
+        .upload-zone {
+            background: var(--gradient-accent);
+            border: 2px dashed hsl(var(--primary));
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border-radius: var(--radius);
+        }
+
+        .upload-zone:hover,
+        .upload-zone.drag-over {
+            background: hsl(var(--primary) / 0.1);
+            border-color: hsl(var(--primary));
+            box-shadow: var(--shadow-glow);
+            transform: scale(1.02);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .btn-primary {
+            background: var(--gradient-primary);
+            color: hsl(var(--primary-foreground));
+            padding: 0.75rem 2rem;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: hsl(var(--foreground));
+            border: 2px solid hsl(var(--border));
+            padding: 0.75rem 2rem;
+        }
+
+        .btn-outline:hover {
+            background: hsl(var(--accent));
+            border-color: hsl(var(--primary));
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: hsl(var(--muted));
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--gradient-primary);
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+
+        .spinner {
+            border: 4px solid hsl(var(--muted));
+            border-top: 4px solid hsl(var(--primary));
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 9999px;
+            border: 1px solid transparent;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            transition: colors;
+        }
+
+        .badge-default {
+            background: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+        }
+
+        .badge-outline {
+            color: hsl(var(--foreground));
+            border-color: hsl(var(--border));
+        }
+
+        .badge-success {
+            background: hsl(var(--success) / 0.2);
+            color: hsl(var(--success));
+        }
+
+        .badge-warning {
+            background: hsl(var(--warning) / 0.2);
+            color: hsl(var(--warning));
+        }
+
+        .badge-destructive {
+            background: hsl(var(--destructive) / 0.2);
+            color: hsl(var(--destructive));
+        }
+
+        .score-display {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .score-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: hsl(var(--primary));
+        }
+
+        .score-bar {
+            flex: 1;
+            height: 10px;
+            background: hsl(var(--muted));
+            border-radius: 5px;
+            margin: 0 1rem;
+            overflow: hidden;
+        }
+
+        .filler-word {
+            background: hsl(var(--destructive));
+            color: hsl(var(--destructive-foreground));
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .text-left {
+            text-align: left;
+        }
+
+        .text-sm {
+            font-size: 0.875rem;
+        }
+
+        .text-lg {
+            font-size: 1.125rem;
+        }
+
+        .text-xl {
+            font-size: 1.25rem;
+        }
+
+        .text-2xl {
+            font-size: 1.5rem;
+        }
+
+        .text-3xl {
+            font-size: 1.875rem;
+        }
+
+        .text-4xl {
+            font-size: 2.25rem;
+        }
+
+        .text-5xl {
+            font-size: 3rem;
+        }
+
+        .font-medium {
+            font-weight: 500;
+        }
+
+        .font-semibold {
+            font-weight: 600;
+        }
+
+        .font-bold {
+            font-weight: 700;
+        }
+
+        .mb-2 { margin-bottom: 0.5rem; }
+        .mb-4 { margin-bottom: 1rem; }
+        .mb-6 { margin-bottom: 1.5rem; }
+        .mb-8 { margin-bottom: 2rem; }
+        .mb-12 { margin-bottom: 3rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-8 { margin-top: 2rem; }
+        .mr-2 { margin-right: 0.5rem; }
+        .mr-4 { margin-right: 1rem; }
+        .ml-2 { margin-left: 0.5rem; }
+
+        .p-4 { padding: 1rem; }
+        .p-6 { padding: 1.5rem; }
+        .p-8 { padding: 2rem; }
+        .px-4 { padding-left: 1rem; padding-right: 1rem; }
+        .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+        .py-8 { padding-top: 2rem; padding-bottom: 2rem; }
+
+        .grid {
+            display: grid;
+        }
+
+        .grid-cols-1 {
+            grid-template-columns: repeat(1, minmax(0, 1fr));
+        }
+
+        .grid-cols-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .grid-cols-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .gap-4 {
+            gap: 1rem;
+        }
+
+        .gap-6 {
+            gap: 1.5rem;
+        }
+
+        .flex {
+            display: flex;
+        }
+
+        .items-center {
+            align-items: center;
+        }
+
+        .justify-center {
+            justify-content: center;
+        }
+
+        .justify-between {
+            justify-content: space-between;
+        }
+
+        .space-y-4 > * + * {
+            margin-top: 1rem;
+        }
+
+        .space-y-6 > * + * {
+            margin-top: 1.5rem;
+        }
+
+        .max-w-4xl {
+            max-width: 56rem;
+        }
+
+        .max-w-7xl {
+            max-width: 80rem;
+        }
+
+        .mx-auto {
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .rounded-lg {
+            border-radius: 0.5rem;
+        }
+
+        .rounded-full {
+            border-radius: 9999px;
+        }
+
+        @media (min-width: 768px) {
+            .md\\:grid-cols-2 {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .md\\:grid-cols-3 {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1024px) {
+            .lg\\:grid-cols-3 {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen py-8 px-4">
+        <div class="max-w-7xl mx-auto">
+            
+            <!-- Header -->
+            <div class="text-center mb-12">
+                <div class="flex items-center justify-center mb-6">
+                    <div class="p-3 rounded-full mr-4" style="background: hsl(var(--primary) / 0.1);">
+                        <i data-lucide="mic" class="h-8 w-8" style="color: hsl(var(--primary));"></i>
+                    </div>
+                    <h1 class="text-5xl font-bold gradient-text">
+                        AI Public Speaking Coach
+                    </h1>
+                </div>
+                <p class="text-xl max-w-3xl mx-auto" style="color: hsl(var(--muted-foreground));">
+                    Upload your speaking video and get comprehensive AI-powered analysis on emotion, 
+                    eye contact, vocal variety, body language, and speaking fluency.
+                </p>
+            </div>
+
+            <!-- Features Section -->
+            <div id="features-section" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                <div class="card-glow text-center p-6">
+                    <i data-lucide="brain" class="h-12 w-12 mx-auto mb-4" style="color: hsl(var(--primary));"></i>
+                    <h3 class="text-xl font-semibold mb-2">Emotion & Sentiment</h3>
+                    <p class="text-sm" style="color: hsl(var(--muted-foreground));">
+                        Analyze facial expressions and speech sentiment for emotional intelligence insights
+                    </p>
+                </div>
+
+                <div class="card-glow text-center p-6">
+                    <i data-lucide="trending-up" class="h-12 w-12 mx-auto mb-4" style="color: hsl(var(--primary));"></i>
+                    <h3 class="text-xl font-semibold mb-2">Vocal & Body Analysis</h3>
+                    <p class="text-sm" style="color: hsl(var(--muted-foreground));">
+                        Evaluate vocal variety, eye contact, posture, and gestures for impactful delivery
+                    </p>
+                </div>
+
+                <div class="card-glow text-center p-6">
+                    <i data-lucide="star" class="h-12 w-12 mx-auto mb-4" style="color: hsl(var(--primary));"></i>
+                    <h3 class="text-xl font-semibold mb-2">Comprehensive Feedback</h3>
+                    <p class="text-sm" style="color: hsl(var(--muted-foreground));">
+                        Get detailed insights and actionable recommendations to improve your speaking skills
+                    </p>
+                </div>
+            </div>
+
+            <!-- Upload Section -->
+            <div id="upload-section" class="max-w-4xl mx-auto mb-8">
+                <div class="card-glow p-8">
+                    <h2 class="text-2xl font-bold mb-6 text-center">Upload Your Speaking Video</h2>
+                    
+                    <div id="upload-area" class="upload-zone text-center p-12 mb-6">
+                        <i data-lucide="upload" class="h-16 w-16 mx-auto mb-6" style="color: hsl(var(--primary));"></i>
+                        <h3 class="text-xl font-semibold mb-2">Drop your video file here</h3>
+                        <p class="mb-6" style="color: hsl(var(--muted-foreground));">
+                            or click to browse. Supports MP4, AVI, MOV formats up to 100MB.
+                        </p>
+                        <input type="file" id="video-file" accept="video/*" class="hidden">
+                        <button class="btn btn-primary" onclick="document.getElementById('video-file').click()">
+                            <i data-lucide="upload" class="h-5 w-5"></i>
+                            Choose Video File
+                        </button>
+                    </div>
+
+                    <div id="upload-progress" class="hidden mb-6">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="text-sm font-medium">Uploading video...</span>
+                            <span id="upload-percent" class="text-sm">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div id="upload-fill" class="progress-fill" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <div class="text-center">
+                        <button id="demo-btn" class="btn btn-outline">
+                            <i data-lucide="star" class="h-5 w-5"></i>
+                            Try Demo Analysis
+                        </button>
+                        <p class="text-sm mt-2" style="color: hsl(var(--muted-foreground));">
+                            See how the analysis works with sample data
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analysis Loading Section -->
+            <div id="loading-section" class="hidden max-w-4xl mx-auto">
+                <div class="card-glow p-8">
+                    <div class="text-center mb-8">
+                        <div class="spinner mb-4"></div>
+                        <h2 class="text-2xl font-bold gradient-text mb-2">
+                            Analyzing Your Speech Performance
+                        </h2>
+                        <p style="color: hsl(var(--muted-foreground));">
+                            Our AI is processing your video to provide comprehensive feedback
+                        </p>
+                    </div>
+
+                    <div class="mb-8">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="text-sm font-medium">Analysis Progress</span>
+                            <span id="analysis-percent" class="text-sm">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div id="analysis-fill" class="progress-fill" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <div id="analysis-steps" class="space-y-4">
+                        <!-- Analysis steps will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-section" class="hidden">
+                <div class="flex justify-between items-center mb-8">
+                    <h2 class="text-3xl font-bold">Your Speaking Analysis</h2>
+                    <button id="reset-btn" class="btn btn-outline">
+                        Analyze Another Video
+                    </button>
+                </div>
+
+                <!-- Overall Score -->
+                <div class="card-glow text-center p-8 mb-8">
+                    <h3 class="text-2xl font-semibold gradient-text mb-2">Overall Speaking Score</h3>
+                    <p class="mb-6" style="color: hsl(var(--muted-foreground));">
+                        Your comprehensive public speaking assessment
+                    </p>
+                    <div class="text-6xl font-bold mb-4" style="color: hsl(var(--primary));" id="overall-score">85</div>
+                    <div class="progress-bar mb-4" style="max-width: 300px; margin: 0 auto;">
+                        <div id="overall-progress" class="progress-fill" style="width: 85%"></div>
+                    </div>
+                    <span id="overall-badge" class="badge badge-success">Excellent</span>
+                </div>
+
+                <!-- Analysis Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8" id="analysis-grid">
+                    <!-- Analysis cards will be populated by JavaScript -->
+                </div>
+
+                <!-- Transcript Section -->
+                <div class="card-glow p-6">
+                    <div class="flex items-center mb-4">
+                        <i data-lucide="file-text" class="h-5 w-5 mr-2" style="color: hsl(var(--primary));"></i>
+                        <h3 class="text-xl font-semibold">Speech Transcript</h3>
+                    </div>
+                    <div id="transcript-content" class="p-4 rounded-lg text-sm leading-relaxed" style="background: hsl(var(--muted) / 0.3);">
+                        <!-- Transcript will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Global state
+        let currentView = 'upload';
+        let analysisProgress = 0;
+        let currentStep = 'Processing Video';
+        
+        // DOM elements
+        const uploadSection = document.getElementById('upload-section');
+        const loadingSection = document.getElementById('loading-section');
+        const resultsSection = document.getElementById('results-section');
+        const featuresSection = document.getElementById('features-section');
+        const uploadArea = document.getElementById('upload-area');
+        const videoFile = document.getElementById('video-file');
+        const uploadProgress = document.getElementById('upload-progress');
+        const uploadFill = document.getElementById('upload-fill');
+        const uploadPercent = document.getElementById('upload-percent');
+        const demoBtn = document.getElementById('demo-btn');
+        const resetBtn = document.getElementById('reset-btn');
+
+        // Mock analysis data
+        const mockAnalysisData = {
+            emotion: {
+                dominant: 'Confident',
+                confidence: 78,
+                breakdown: [
+                    { emotion: 'Confident', percentage: 45 },
+                    { emotion: 'Enthusiastic', percentage: 30 },
+                    { emotion: 'Nervous', percentage: 15 },
+                    { emotion: 'Calm', percentage: 10 }
+                ]
+            },
+            sentiment: {
+                overall: 'Positive',
+                score: 0.6,
+                positivity: 75
+            },
+            eyeContact: {
+                percentage: 68,
+                rating: 'Good',
+                avgDuration: 3.2
+            },
+            vocalVariety: {
+                pace: 72,
+                volume: 85,
+                pitch: 65,
+                clarity: 88
+            },
+            bodyLanguage: {
+                posture: 'Confident',
+                gestures: 12,
+                energy: 80
+            },
+            fillerWords: {
+                count: 23,
+                percentage: 3.2,
+                words: [
+                    { word: 'um', count: 8 },
+                    { word: 'uh', count: 7 },
+                    { word: 'like', count: 5 },
+                    { word: 'you know', count: 3 }
+                ]
+            },
+            overallScore: 74,
+            transcript: "Welcome everyone to this presentation. Um, today I'll be discussing the, uh, importance of effective communication in the workplace. You know, good communication is like the foundation of any successful team. Um, it helps us collaborate better and, uh, achieve our goals more efficiently. So let's dive into the key strategies that can help improve our communication skills."
+        };
+
+        // Event listeners
+        uploadArea.addEventListener('click', () => videoFile.click());
+        uploadArea.addEventListener('dragover', handleDragOver);
+        uploadArea.addEventListener('dragleave', handleDragLeave);
+        uploadArea.addEventListener('drop', handleDrop);
+        videoFile.addEventListener('change', handleFileSelect);
+        demoBtn.addEventListener('click', handleTryDemo);
+        resetBtn.addEventListener('click', resetToUpload);
+
+        // Drag and drop handlers
+        function handleDragOver(e) {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleVideoUpload(files[0]);
+            }
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                handleVideoUpload(file);
+            }
+        }
+
+        // File upload handling
+        function handleVideoUpload(file) {
+            // Validate file
+            const allowedTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/quicktime', 'video/x-msvideo'];
+            const maxSize = 100 * 1024 * 1024; // 100MB
+
+            if (!allowedTypes.includes(file.type) && !file.name.match(/\.(mp4|avi|mov|mkv)$/i)) {
+                alert('Please upload a valid video file (MP4, AVI, MOV, MKV)');
+                return;
+            }
+
+            if (file.size > maxSize) {
+                alert('File size must be less than 100MB');
+                return;
+            }
+
+            simulateUpload();
+        }
+
+        function simulateUpload() {
+            uploadProgress.classList.remove('hidden');
+            let progress = 0;
+            
+            const interval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        startAnalysis();
+                    }, 500);
+                }
+                
+                uploadFill.style.width = progress + '%';
+                uploadPercent.textContent = Math.round(progress) + '%';
+            }, 200);
+        }
+
+        function startAnalysis() {
+            setCurrentView('analyzing');
+            simulateAnalysis();
+        }
+
+        function handleTryDemo() {
+            simulateAnalysis();
+            setCurrentView('analyzing');
+        }
+
+        function simulateAnalysis() {
+            const steps = [
+                { icon: 'brain', label: 'Processing Video', description: 'Extracting audio and visual data' },
+                { icon: 'message-square', label: 'Speech Recognition', description: 'Converting speech to text' },
+                { icon: 'eye', label: 'Facial Analysis', description: 'Analyzing facial expressions and eye contact' },
+                { icon: 'mic', label: 'Vocal Analysis', description: 'Evaluating vocal variety and filler words' },
+                { icon: 'trending-up', label: 'Generating Insights', description: 'Compiling comprehensive analysis' }
+            ];
+
+            let stepIndex = 0;
+            let progress = 0;
+
+            // Populate analysis steps
+            const stepsContainer = document.getElementById('analysis-steps');
+            stepsContainer.innerHTML = steps.map((step, index) => `
+                <div id="step-${index}" class="flex items-center p-4 rounded-lg transition-all duration-300" style="background: hsl(var(--muted) / 0.3); border: 1px solid hsl(var(--border));">
+                    <div id="step-icon-${index}" class="p-2 rounded-lg mr-4" style="background: hsl(var(--muted)); color: hsl(var(--muted-foreground));">
+                        <i data-lucide="${step.icon}" class="h-5 w-5"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h3 id="step-title-${index}" class="font-medium" style="color: hsl(var(--muted-foreground));">${step.label}</h3>
+                        <p class="text-sm" style="color: hsl(var(--muted-foreground));">${step.description}</p>
+                    </div>
+                    <div id="step-check-${index}" class="hidden" style="color: hsl(var(--success));">
+                        <i data-lucide="check" class="h-5 w-5"></i>
+                    </div>
+                </div>
+            `).join('');
+
+            lucide.createIcons();
+
+            const interval = setInterval(() => {
+                progress += Math.random() * 15 + 5;
+                
+                if (progress >= 100) {
+                    progress = 100;
+                    document.getElementById('analysis-fill').style.width = progress + '%';
+                    document.getElementById('analysis-percent').textContent = Math.round(progress) + '%';
+                    clearInterval(interval);
+                    
+                    setTimeout(() => {
+                        setCurrentView('results');
+                        showResults();
+                    }, 1000);
+                } else {
+                    if (progress > (stepIndex + 1) * 20 && stepIndex < steps.length - 1) {
+                        // Mark current step as complete
+                        const stepEl = document.getElementById(`step-${stepIndex}`);
+                        const iconEl = document.getElementById(`step-icon-${stepIndex}`);
+                        const titleEl = document.getElementById(`step-title-${stepIndex}`);
+                        const checkEl = document.getElementById(`step-check-${stepIndex}`);
+                        
+                        stepEl.style.background = 'hsl(var(--success) / 0.1)';
+                        stepEl.style.borderColor = 'hsl(var(--success) / 0.2)';
+                        iconEl.style.background = 'hsl(var(--success))';
+                        iconEl.style.color = 'white';
+                        titleEl.style.color = 'hsl(var(--success))';
+                        checkEl.classList.remove('hidden');
+                        
+                        stepIndex++;
+                        
+                        // Update current step
+                        if (stepIndex < steps.length) {
+                            const nextStepEl = document.getElementById(`step-${stepIndex}`);
+                            const nextIconEl = document.getElementById(`step-icon-${stepIndex}`);
+                            const nextTitleEl = document.getElementById(`step-title-${stepIndex}`);
+                            
+                            nextStepEl.style.background = 'hsl(var(--primary) / 0.1)';
+                            nextStepEl.style.borderColor = 'hsl(var(--primary) / 0.2)';
+                            nextIconEl.style.background = 'hsl(var(--primary))';
+                            nextIconEl.style.color = 'white';
+                            nextTitleEl.style.color = 'hsl(var(--primary))';
+                        }
+                    }
+                    
+                    document.getElementById('analysis-fill').style.width = progress + '%';
+                    document.getElementById('analysis-percent').textContent = Math.round(progress) + '%';
+                }
+            }, 800);
+        }
+
+        function showResults() {
+            populateResults(mockAnalysisData);
+        }
+
+        function populateResults(data) {
+            // Update overall score
+            document.getElementById('overall-score').textContent = data.overallScore;
+            document.getElementById('overall-progress').style.width = data.overallScore + '%';
+            
+            const badge = document.getElementById('overall-badge');
+            if (data.overallScore >= 80) {
+                badge.className = 'badge badge-success';
+                badge.textContent = 'Excellent';
+            } else if (data.overallScore >= 60) {
+                badge.className = 'badge badge-warning';
+                badge.textContent = 'Good';
+            } else {
+                badge.className = 'badge badge-destructive';
+                badge.textContent = 'Needs Improvement';
+            }
+
+            // Populate analysis cards
+            const analysisGrid = document.getElementById('analysis-grid');
+            analysisGrid.innerHTML = `
+                <!-- Emotion Analysis Card -->
+                <div class="card-glow p-6">
+                    <div class="flex items-center mb-4">
+                        <i data-lucide="brain" class="h-5 w-5 mr-2" style="color: hsl(var(--primary));"></i>
+                        <h3 class="text-lg font-semibold">Emotion Analysis</h3>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="score-display">
+                            <div class="score-number">${data.emotion.confidence}%</div>
+                            <div class="score-bar">
+                                <div class="progress-fill" style="width: ${data.emotion.confidence}%"></div>
+                            </div>
+                        </div>
+                        <div class="text-center mb-4">
+                            <div class="text-lg font-semibold">${data.emotion.dominant}</div>
+                        </div>
+                        <div class="space-y-2">
+                            ${data.emotion.breakdown.map(item => `
+                                <div class="flex justify-between text-sm">
+                                    <span>${item.emotion}</span>
+                                    <span style="color: hsl(var(--muted-foreground));">${item.percentage}%</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sentiment Analysis Card -->
+                <div class="card-glow p-6">
+                    <div class="flex items-center mb-4">
+                        <i data-lucide="heart" class="h-5 w-5 mr-2" style="color: hsl(var(--primary));"></i>
+                        <h3 class="text-lg font-semibold">Sentiment</h3>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold mb-2">${data.sentiment.overall}</div>
+                            <span class="badge badge-outline">${data.sentiment.score > 0 ? 'Positive' : 'Negative'}</span>
+                        </div>
+                        <div class="score-display">
+                            <span class="text-sm">Positivity Score</span>
+                            <span class="text-sm font-medium">${data.sentiment.positivity}%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${data.sentiment.positivity}%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Eye Contact Card -->
+                <div class="card-glow p-6">
+                    <div class="flex items-center mb-4">
+                        <i data-lucide="eye" class="h-5 w-5 mr-2" style="color: hsl(var(--primary));"></i>
+                        <h3 class="text-lg font-semibold">Eye Contact</h3>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="text-center">
+                            <div class="text-3xl font-bold mb-2">${data.eyeContact.percentage}%</div>
+                            <span class="badge ${getScoreBadgeClass(data.eyeContact.percentage)}">${data.eyeContact.rating}</span>
+                        </div>
+                        <div class="text-center text-sm" style="color: hsl(var(--muted-foreground));">
+                            <i data-lucide="clock" class="h-4 w-4 inline mr-1"></i>
+                            Avg Duration: ${data.eyeContact.avgDuration}s
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${data.eyeContact.percentage}%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Vocal Variety Card -->
+                <div class="card-glow p-6">
+                    <div class="flex items-center mb-4">
+                        <i data-lucide="mic" class="h-5 w-5 mr-2" style="color: hsl(var(--primary));"></i>
+                        <h3 class="text-lg font-semibold">Vocal Variety</h3>
+                    </div>
+                    <div class="space-y-3">
+                        ${Object.entries(data.vocalVariety).map(([key, value]) => `
+                            <div>
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-sm capitalize">${key}</span>
+                                    <span class="text-sm font-medium">${value}%</span>
+                                </div>
+                                <div class="progress-bar" style="height: 6px;">
+                                    <div class="progress-fill" style="width: ${value}%"></div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Body Language Card -->
+                <div class="card-glow p-6">
+                    <div class="flex items-center mb-4">
+                        <i data-lucide="users" class="h-5 w-5 mr-2" style="color: hsl(var(--primary));"></i>
+                        <h3 class="text-lg font-semibold">Body Language</h3>
+                    </div>
+                    <div class="space-y-4">
+                        <div>
+                            <span class="text-sm" style="color: hsl(var(--muted-foreground));">Posture</span>
+                            <div class="font-medium">${data.bodyLanguage.posture}</div>
+                        </div>
+                        <div>
+                            <span class="text-sm" style="color: hsl(var(--muted-foreground));">Gestures</span>
+                            <div class="font-medium">${data.bodyLanguage.gestures} per minute</div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-sm">Energy Level</span>
+                                <span class="text-sm font-medium">${data.bodyLanguage.energy}%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${data.bodyLanguage.energy}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filler Words Card -->
+                <div class="card-glow p-6">
+                    <div class="flex items-center mb-4">
+                        <i data-lucide="message-square" class="h-5 w-5 mr-2" style="color: hsl(var(--primary));"></i>
+                        <h3 class="text-lg font-semibold">Filler Words</h3>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="text-center">
+                            <div class="text-3xl font-bold mb-2">${data.fillerWords.count}</div>
+                            <div class="text-sm" style="color: hsl(var(--muted-foreground));">
+                                ${data.fillerWords.percentage}% of total words
+                            </div>
+                        </div>
+                        <div class="space-y-2">
+                            ${data.fillerWords.words.map(item => `
+                                <div class="flex justify-between items-center">
+                                    <span class="badge badge-outline">"${item.word}"</span>
+                                    <span class="text-sm" style="color: hsl(var(--muted-foreground));">${item.count}x</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Populate transcript
+            const transcriptContent = document.getElementById('transcript-content');
+            const words = data.transcript.split(' ');
+            const fillerWordsList = data.fillerWords.words.map(fw => fw.word.toLowerCase());
+            
+            transcriptContent.innerHTML = words.map(word => {
+                const cleanWord = word.toLowerCase().replace(/[.,!?]/g, '');
+                const isFillerWord = fillerWordsList.includes(cleanWord);
+                return isFillerWord ? `<span class="filler-word">${word}</span>` : word;
+            }).join(' ');
+
+            lucide.createIcons();
+        }
+
+        function getScoreBadgeClass(score) {
+            if (score >= 80) return 'badge-success';
+            if (score >= 60) return 'badge-warning';
+            return 'badge-destructive';
+        }
+
+        function setCurrentView(view) {
+            currentView = view;
+            
+            // Hide all sections
+            uploadSection.classList.add('hidden');
+            loadingSection.classList.add('hidden');
+            resultsSection.classList.add('hidden');
+            featuresSection.classList.add('hidden');
+            
+            // Show current section
+            switch (view) {
+                case 'upload':
+                    uploadSection.classList.remove('hidden');
+                    featuresSection.classList.remove('hidden');
+                    break;
+                case 'analyzing':
+                    loadingSection.classList.remove('hidden');
+                    break;
+                case 'results':
+                    resultsSection.classList.remove('hidden');
+                    break;
+            }
+        }
+
+        function resetToUpload() {
+            setCurrentView('upload');
+            analysisProgress = 0;
+            currentStep = 'Processing Video';
+            uploadProgress.classList.add('hidden');
+            uploadFill.style.width = '0%';
+            uploadPercent.textContent = '0%';
+            videoFile.value = '';
+        }
+
+        // API Integration Function (for Flask backend)
+        async function analyzeVideoWithAPI(file) {
+            const formData = new FormData();
+            formData.append('video', file);
+
+            try {
+                // Upload video
+                const uploadResponse = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!uploadResponse.ok) {
+                    throw new Error('Upload failed');
+                }
+
+                const uploadResult = await uploadResponse.json();
+                const videoId = uploadResult.video_id;
+
+                // Start analysis
+                const analysisResponse = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ video_id: videoId })
+                });
+
+                if (!analysisResponse.ok) {
+                    throw new Error('Analysis failed');
+                }
+
+                // Poll for results
+                return await pollForResults(videoId);
+
+            } catch (error) {
+                console.error('API Error:', error);
+                alert('Analysis failed. Please try again.');
+                resetToUpload();
+            }
+        }
+
+        async function pollForResults(videoId) {
+            const maxAttempts = 60; // 5 minutes max
+            let attempts = 0;
+
+            while (attempts < maxAttempts) {
+                try {
+                    const response = await fetch(`/api/results/${videoId}`);
+                    const result = await response.json();
+
+                    if (result.status === 'completed') {
+                        return result.data;
+                    } else if (result.status === 'failed') {
+                        throw new Error('Analysis failed');
+                    }
+
+                    // Update progress if available
+                    if (result.progress) {
+                        document.getElementById('analysis-fill').style.width = result.progress + '%';
+                        document.getElementById('analysis-percent').textContent = Math.round(result.progress) + '%';
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+                    attempts++;
+
+                } catch (error) {
+                    console.error('Polling error:', error);
+                    break;
+                }
+            }
+
+            throw new Error('Analysis timeout');
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            setCurrentView('upload');
+            console.log('SpeakWell Coach initialized');
+        });
+    </script>
+</body>
+</html>

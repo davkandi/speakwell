@@ -657,7 +657,8 @@
                 return;
             }
 
-            simulateUpload();
+            // Use real API for actual video uploads
+            analyzeVideoWithAPI(file);
         }
 
         function simulateUpload() {
@@ -971,6 +972,9 @@
                     uploadSection.classList.remove('hidden');
                     featuresSection.classList.remove('hidden');
                     break;
+                case 'uploading':
+                    uploadSection.classList.remove('hidden');
+                    break;
                 case 'analyzing':
                     loadingSection.classList.remove('hidden');
                     break;
@@ -996,17 +1000,12 @@
             formData.append('video', file);
 
             try {
-                // Upload video
-                const uploadResponse = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData
-                });
+                // Show upload progress
+                uploadProgress.classList.remove('hidden');
+                setCurrentView('uploading');
 
-                if (!uploadResponse.ok) {
-                    throw new Error('Upload failed');
-                }
-
-                const uploadResult = await uploadResponse.json();
+                // Upload video with progress
+                const uploadResult = await uploadVideoWithProgress(file);
                 const videoId = uploadResult.video_id;
 
                 // Start analysis
@@ -1019,50 +1018,172 @@
                 });
 
                 if (!analysisResponse.ok) {
-                    throw new Error('Analysis failed');
+                    const errorData = await analysisResponse.json();
+                    throw new Error(errorData.error || 'Analysis failed');
                 }
 
-                // Poll for results
-                return await pollForResults(videoId);
+                // Switch to analysis view and start polling
+                setCurrentView('analyzing');
+                const analysisData = await pollForResults(videoId);
+                
+                // Show results
+                setCurrentView('results');
+                populateResults(analysisData);
 
             } catch (error) {
                 console.error('API Error:', error);
-                alert('Analysis failed. Please try again.');
+                alert(`Analysis failed: ${error.message}. Please try again.`);
                 resetToUpload();
             }
         }
 
+        async function uploadVideoWithProgress(file) {
+            const formData = new FormData();
+            formData.append('video', file);
+
+            // Simulate upload progress (since we can't track real progress with fetch)
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 10 + 2;
+                if (progress >= 95) {
+                    progress = 95; // Don't complete until actual response
+                }
+                uploadFill.style.width = progress + '%';
+                uploadPercent.textContent = Math.round(progress) + '%';
+            }, 200);
+
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            clearInterval(progressInterval);
+            uploadFill.style.width = '100%';
+            uploadPercent.textContent = '100%';
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Upload failed');
+            }
+
+            return await response.json();
+        }
+
         async function pollForResults(videoId) {
-            const maxAttempts = 60; // 5 minutes max
+            const maxAttempts = 120; // 10 minutes max (5 second intervals)
             let attempts = 0;
+
+            // Initialize analysis steps display
+            await initializeAnalysisSteps();
 
             while (attempts < maxAttempts) {
                 try {
                     const response = await fetch(`/api/results/${videoId}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`Server error: ${response.status}`);
+                    }
+
                     const result = await response.json();
 
                     if (result.status === 'completed') {
+                        // Ensure progress shows 100%
+                        document.getElementById('analysis-fill').style.width = '100%';
+                        document.getElementById('analysis-percent').textContent = '100%';
                         return result.data;
                     } else if (result.status === 'failed') {
-                        throw new Error('Analysis failed');
+                        throw new Error(result.error || 'Analysis failed');
                     }
 
-                    // Update progress if available
-                    if (result.progress) {
-                        document.getElementById('analysis-fill').style.width = result.progress + '%';
-                        document.getElementById('analysis-percent').textContent = Math.round(result.progress) + '%';
+                    // Update progress for processing status
+                    if (result.status === 'processing') {
+                        const progress = result.progress || 0;
+                        const currentStep = result.current_step || 'Processing...';
+                        
+                        document.getElementById('analysis-fill').style.width = progress + '%';
+                        document.getElementById('analysis-percent').textContent = Math.round(progress) + '%';
+                        
+                        // Update step display based on progress
+                        updateAnalysisSteps(progress, currentStep);
                     }
 
-                    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+                    await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
                     attempts++;
 
                 } catch (error) {
                     console.error('Polling error:', error);
-                    break;
+                    throw new Error(`Analysis failed: ${error.message}`);
                 }
             }
 
-            throw new Error('Analysis timeout');
+            throw new Error('Analysis timeout - please try again');
+        }
+
+        async function initializeAnalysisSteps() {
+            const steps = [
+                { icon: 'download', label: 'Downloading Video', description: 'Retrieving video from storage' },
+                { icon: 'brain', label: 'Processing Video', description: 'Extracting audio and visual data' },
+                { icon: 'message-square', label: 'Speech Recognition', description: 'Converting speech to text' },
+                { icon: 'eye', label: 'Facial Analysis', description: 'Analyzing facial expressions and eye contact' },
+                { icon: 'mic', label: 'Vocal Analysis', description: 'Evaluating vocal variety and filler words' },
+                { icon: 'users', label: 'Body Language', description: 'Analyzing posture and gestures' },
+                { icon: 'trending-up', label: 'Generating Insights', description: 'Compiling comprehensive analysis' }
+            ];
+
+            const stepsContainer = document.getElementById('analysis-steps');
+            stepsContainer.innerHTML = steps.map((step, index) => `
+                <div id="step-${index}" class="flex items-center p-4 rounded-lg transition-all duration-300" style="background: hsl(var(--muted) / 0.3); border: 1px solid hsl(var(--border));">
+                    <div id="step-icon-${index}" class="p-2 rounded-lg mr-4" style="background: hsl(var(--muted)); color: hsl(var(--muted-foreground));">
+                        <i data-lucide="${step.icon}" class="h-5 w-5"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h3 id="step-title-${index}" class="font-medium" style="color: hsl(var(--muted-foreground));">${step.label}</h3>
+                        <p class="text-sm" style="color: hsl(var(--muted-foreground));">${step.description}</p>
+                    </div>
+                    <div id="step-check-${index}" class="hidden" style="color: hsl(var(--success));">
+                        <i data-lucide="check" class="h-5 w-5"></i>
+                    </div>
+                </div>
+            `).join('');
+
+            lucide.createIcons();
+        }
+
+        function updateAnalysisSteps(progress, currentStep) {
+            const steps = ['Downloading Video', 'Processing Video', 'Speech Recognition', 'Facial Analysis', 'Vocal Analysis', 'Body Language', 'Generating Insights'];
+            const stepIndex = Math.floor((progress / 100) * steps.length);
+
+            // Mark completed steps
+            for (let i = 0; i < stepIndex; i++) {
+                const stepEl = document.getElementById(`step-${i}`);
+                const iconEl = document.getElementById(`step-icon-${i}`);
+                const titleEl = document.getElementById(`step-title-${i}`);
+                const checkEl = document.getElementById(`step-check-${i}`);
+                
+                if (stepEl) {
+                    stepEl.style.background = 'hsl(var(--success) / 0.1)';
+                    stepEl.style.borderColor = 'hsl(var(--success) / 0.2)';
+                    iconEl.style.background = 'hsl(var(--success))';
+                    iconEl.style.color = 'white';
+                    titleEl.style.color = 'hsl(var(--success))';
+                    checkEl.classList.remove('hidden');
+                }
+            }
+
+            // Mark current step
+            if (stepIndex < steps.length) {
+                const currentStepEl = document.getElementById(`step-${stepIndex}`);
+                const currentIconEl = document.getElementById(`step-icon-${stepIndex}`);
+                const currentTitleEl = document.getElementById(`step-title-${stepIndex}`);
+                
+                if (currentStepEl) {
+                    currentStepEl.style.background = 'hsl(var(--primary) / 0.1)';
+                    currentStepEl.style.borderColor = 'hsl(var(--primary) / 0.2)';
+                    currentIconEl.style.background = 'hsl(var(--primary))';
+                    currentIconEl.style.color = 'white';
+                    currentTitleEl.style.color = 'hsl(var(--primary))';
+                }
+            }
         }
 
         // Initialize the application

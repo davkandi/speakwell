@@ -47,14 +47,17 @@ class EmotionAnalyzer:
         
         emotions = []
         for (x, y, w, h) in faces:
-            face = gray[y:y+h, x:x+w]
-            face = cv2.resize(face, (48, 48))
-            face = np.expand_dims(face, axis=0)
-            face = np.expand_dims(face, axis=0)
-            face = face.astype('float32') / 255.0
+            # Extract face region from original color frame
+            face_color = frame[y:y+h, x:x+w]
+            face_color = cv2.resize(face_color, (224, 224))  # ResNet expects 224x224
             
-            # Convert to tensor and predict
-            face_tensor = torch.from_numpy(face)
+            # Convert BGR to RGB and normalize
+            face_rgb = cv2.cvtColor(face_color, cv2.COLOR_BGR2RGB)
+            face_rgb = face_rgb.astype('float32') / 255.0
+            
+            # Add batch dimension and rearrange to (batch, channels, height, width)
+            face_tensor = torch.from_numpy(face_rgb).permute(2, 0, 1).unsqueeze(0)
+            
             with torch.no_grad():
                 prediction = self.emotion_model(face_tensor)
                 emotion_probs = torch.softmax(prediction, dim=1).squeeze().numpy()
@@ -262,9 +265,41 @@ class SpeechAnalyzer:
         }
     
     def extract_audio(self, video_path):
-        """Extract audio from video"""
-        audio, sr = librosa.load(video_path, sr=16000)
-        return audio, sr
+        """Extract audio from video using FFmpeg"""
+        import subprocess
+        import tempfile
+        
+        # Create temporary WAV file
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_audio:
+            temp_audio_path = temp_audio.name
+        
+        try:
+            # Use FFmpeg to extract audio (use full path)
+            cmd = [
+                '/usr/bin/ffmpeg', '-i', video_path, 
+                '-vn',  # No video
+                '-acodec', 'pcm_s16le',  # PCM 16-bit
+                '-ar', '16000',  # Sample rate 16kHz
+                '-ac', '1',  # Mono
+                '-y',  # Overwrite output
+                temp_audio_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(f"FFmpeg failed: {result.stderr}")
+            
+            # Load the extracted audio
+            audio, sr = librosa.load(temp_audio_path, sr=16000)
+            
+            return audio, sr
+            
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_audio_path)
+            except:
+                pass
     
     def transcribe_audio(self, audio, sr, progress_callback=None):
         """Convert speech to text using Whisper"""
@@ -636,6 +671,126 @@ class VideoAnalyzer:
                     os.unlink(video_path)
                 except:
                     pass
+            raise e
+    
+    def _calculate_overall_score(self, results):
+        """Calculate overall speaking performance score"""
+        scores = []
+        weights = []
+        
+        # Emotion Analysis (weight: 20%)
+        if results.get('emotion', {}).get('confidence'):
+            emotion_score = results['emotion']['confidence']
+            scores.append(emotion_score)
+            weights.append(20)
+        
+        # Eye Contact (weight: 25%)
+        if results.get('eye_contact', {}).get('percentage'):
+            eye_score = results['eye_contact']['percentage']
+            scores.append(eye_score)
+            weights.append(25)
+        
+        # Sentiment (weight: 15%)
+        if results.get('sentiment', {}).get('positivity'):
+            sentiment_score = results['sentiment']['positivity']
+            scores.append(sentiment_score)
+            weights.append(15)
+        
+        # Vocal Variety (weight: 20%)
+        if results.get('vocal_variety'):
+            vocal_scores = list(results['vocal_variety'].values())
+            vocal_avg = np.mean(vocal_scores)
+            scores.append(vocal_avg)
+            weights.append(20)
+        
+        # Body Language (weight: 15%)
+        if results.get('body_language', {}).get('energy'):
+            body_score = results['body_language']['energy']
+            scores.append(body_score)
+            weights.append(15)
+        
+        # Filler Words (weight: 5% - penalty)
+        if results.get('filler_words', {}).get('percentage'):
+            filler_penalty = min(20, results['filler_words']['percentage'] * 2)  # Max 20 point penalty
+            filler_score = 100 - filler_penalty
+            scores.append(filler_score)
+            weights.append(5)
+        
+        # Calculate weighted average
+        if scores and weights:
+            total_weight = sum(weights)
+            weighted_sum = sum(score * weight for score, weight in zip(scores, weights))
+            overall_score = weighted_sum / total_weight
+            return round(max(0, min(100, overall_score)))
+        
+        return 50  # Default score if no analysis available
+
+
+class LocalVideoAnalyzer:
+    """Simplified video analyzer that works with local files (no S3 downloads)"""
+    
+    def __init__(self, video_path, progress_callback=None):
+        self.video_path = video_path
+        self.progress_callback = progress_callback
+        
+        # Initialize analyzers
+        self.emotion_analyzer = EmotionAnalyzer()
+        self.eye_contact_analyzer = EyeContactAnalyzer()
+        self.speech_analyzer = SpeechAnalyzer()
+        self.body_language_analyzer = BodyLanguageAnalyzer()
+    
+    def analyze(self):
+        """Run complete video analysis on local file"""
+        try:
+            if not os.path.exists(self.video_path):
+                raise Exception(f"Video file not found: {self.video_path}")
+            
+            if self.progress_callback:
+                self.progress_callback(5, "Starting analysis")
+            
+            # Get video duration
+            cap = cv2.VideoCapture(self.video_path)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+            duration = frame_count / fps if fps > 0 else 0
+            cap.release()
+            
+            if self.progress_callback:
+                self.progress_callback(10, "Processing video")
+            
+            # Run all analyses
+            results = {}
+            
+            # 1. Emotion Analysis (10-25%)
+            results['emotion'] = self.emotion_analyzer.analyze_video(self.video_path, self.progress_callback)
+            
+            # 2. Eye Contact Analysis (25-40%)  
+            results['eye_contact'] = self.eye_contact_analyzer.analyze_video(self.video_path, self.progress_callback)
+            
+            # 3. Speech Analysis (40-70%)
+            audio, sr = self.speech_analyzer.extract_audio(self.video_path)
+            transcript = self.speech_analyzer.transcribe_audio(audio, sr, self.progress_callback)
+            results['transcript'] = transcript
+            results['sentiment'] = self.speech_analyzer.analyze_sentiment(transcript)
+            results['filler_words'] = self.speech_analyzer.detect_filler_words(transcript)
+            results['vocal_variety'] = self.speech_analyzer.analyze_vocal_variety(audio, sr, self.progress_callback)
+            
+            # 4. Body Language Analysis (70-85%)
+            results['body_language'] = self.body_language_analyzer.analyze_video(self.video_path, self.progress_callback)
+            
+            # 5. Calculate Overall Score (85-95%)
+            if self.progress_callback:
+                self.progress_callback(85, "Calculating overall score")
+            
+            results['overall_score'] = self._calculate_overall_score(results)
+            results['duration'] = round(duration, 2)
+            
+            if self.progress_callback:
+                self.progress_callback(100, "Analysis complete")
+            
+            return results
+            
+        except Exception as e:
             raise e
     
     def _calculate_overall_score(self, results):

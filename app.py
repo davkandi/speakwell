@@ -65,7 +65,8 @@ class VideoAnalysis(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Allow anonymous uploads
     filename = db.Column(db.String(255), nullable=False)
-    s3_key = db.Column(db.String(255), nullable=False)
+    s3_key = db.Column(db.String(255), nullable=True)  # Made optional for S3 archival
+    local_path = db.Column(db.String(255), nullable=True)  # Local file path for processing
     file_size = db.Column(db.Integer, nullable=False)
     duration = db.Column(db.Float, nullable=True)
     status = db.Column(db.String(20), default='pending')  # pending, processing, completed, failed
@@ -213,7 +214,7 @@ def get_current_user():
 # Video Upload and Analysis Routes
 @app.route('/api/upload', methods=['POST'])
 def upload_video():
-    """Upload video file to S3"""
+    """Upload video file and save locally for processing"""
     if 'video' not in request.files:
         return jsonify({'error': 'No video file provided'}), 400
     
@@ -236,10 +237,15 @@ def upload_video():
     filename = secure_filename(file.filename)
     unique_filename = f"{uuid.uuid4()}_{filename}"
     
-    # Upload to S3
+    # Save video locally for immediate processing
+    upload_dir = os.path.join(app.root_path, 'uploads')
+    os.makedirs(upload_dir, exist_ok=True)
+    local_path = os.path.join(upload_dir, unique_filename)
+    file.save(local_path)
+    
+    # Upload to S3 in background for archival (optional)
+    file.seek(0)  # Reset for S3 upload
     s3_key = upload_to_s3(file, unique_filename)
-    if not s3_key:
-        return jsonify({'error': 'Failed to upload file'}), 500
     
     # Get current user if authenticated
     user_id = None
@@ -248,13 +254,16 @@ def upload_video():
     except:
         pass  # Allow anonymous uploads
     
-    # Create video analysis record
+    # Create video analysis record with local path
     analysis = VideoAnalysis(
         user_id=user_id,
         filename=filename,
-        s3_key=s3_key,
+        s3_key=s3_key,  # Keep for archival
         file_size=file_size
     )
+    
+    # Store local path temporarily in database (we'll add this field)
+    analysis.local_path = local_path
     
     db.session.add(analysis)
     db.session.commit()
@@ -376,65 +385,95 @@ def get_user_analyses():
         'current_page': page
     })
 
+# Import analysis module at module level for Celery
+try:
+    from ai_analysis import LocalVideoAnalyzer
+except ImportError as e:
+    logger.error(f"Failed to import ai_analysis module: {e}")
+    LocalVideoAnalyzer = None
+
 # Celery Tasks
 @celery.task(bind=True)
 def analyze_video_task(self, analysis_id):
-    """Background task to analyze video"""
-    from ai_analysis import VideoAnalyzer
+    """Background task to analyze video using local file"""
+    if LocalVideoAnalyzer is None:
+        raise Exception("LocalVideoAnalyzer not available - check ai_analysis module")
     
-    try:
-        # Get analysis record
-        analysis = VideoAnalysis.query.get(analysis_id)
-        if not analysis:
-            raise Exception("Analysis record not found")
+    # Create Flask application context for database access
+    with app.app_context():
+        try:
+            # Get analysis record
+            analysis = VideoAnalysis.query.get(analysis_id)
+            if not analysis:
+                raise Exception("Analysis record not found")
         
-        # Update progress
-        def update_progress(progress, step):
-            analysis.progress = progress
-            analysis.current_step = step
+            # Check if local file exists
+            if not analysis.local_path or not os.path.exists(analysis.local_path):
+                raise Exception("Local video file not found")
+            
+            # Update progress
+            def update_progress(progress, step):
+                with app.app_context():
+                    analysis_update = VideoAnalysis.query.get(analysis_id)
+                    if analysis_update:
+                        analysis_update.progress = progress
+                        analysis_update.current_step = step
+                        db.session.commit()
+            
+            # Initialize AI analyzer with local file path
+            analyzer = LocalVideoAnalyzer(
+                video_path=analysis.local_path,
+                progress_callback=update_progress
+            )
+            
+            # Update status to processing
+            analysis.status = 'processing'
+            analysis.started_at = datetime.utcnow()
             db.session.commit()
-        
-        # Initialize AI analyzer
-        analyzer = VideoAnalyzer(
-            s3_bucket=app.config['S3_BUCKET'],
-            s3_key=analysis.s3_key,
-            progress_callback=update_progress
-        )
-        
-        # Run analysis
-        results = analyzer.analyze()
-        
-        # Update database with results
-        analysis.emotion_analysis = results['emotion']
-        analysis.sentiment_analysis = results['sentiment']
-        analysis.eye_contact_analysis = results['eye_contact']
-        analysis.vocal_variety_analysis = results['vocal_variety']
-        analysis.body_language_analysis = results['body_language']
-        analysis.filler_words_analysis = results['filler_words']
-        analysis.transcript = results['transcript']
-        analysis.overall_score = results['overall_score']
-        analysis.duration = results['duration']
-        analysis.status = 'completed'
-        analysis.completed_at = datetime.utcnow()
-        analysis.progress = 100
-        analysis.current_step = 'Analysis Complete'
-        
-        db.session.commit()
-        
-        logger.info(f"Analysis completed for video {analysis_id}")
-        return {'status': 'completed', 'analysis_id': analysis_id}
-        
-    except Exception as e:
-        logger.error(f"Analysis failed for video {analysis_id}: {str(e)}")
-        
-        # Update database with error
-        analysis = VideoAnalysis.query.get(analysis_id)
-        if analysis:
-            analysis.status = 'failed'
-            analysis.error_message = str(e)
+            
+            # Run analysis
+            results = analyzer.analyze()
+            
+            # Update database with results
+            analysis.emotion_analysis = results['emotion']
+            analysis.sentiment_analysis = results['sentiment']
+            analysis.eye_contact_analysis = results['eye_contact']
+            analysis.vocal_variety_analysis = results['vocal_variety']
+            analysis.body_language_analysis = results['body_language']
+            analysis.filler_words_analysis = results['filler_words']
+            analysis.transcript = results['transcript']
+            analysis.overall_score = results['overall_score']
+            analysis.duration = results['duration']
+            analysis.status = 'completed'
+            analysis.completed_at = datetime.utcnow()
+            analysis.progress = 100
+            analysis.current_step = 'Analysis Complete'
+            
             db.session.commit()
+            
+            # Clean up local file after analysis
+            try:
+                if os.path.exists(analysis.local_path):
+                    os.remove(analysis.local_path)
+                    analysis.local_path = None
+                    db.session.commit()
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup local file: {cleanup_error}")
+            
+            logger.info(f"Analysis completed for video {analysis_id}")
+            return {'status': 'completed', 'analysis_id': analysis_id}
         
-        raise self.retry(exc=e, countdown=60, max_retries=3)
+        except Exception as e:
+            logger.error(f"Analysis failed for video {analysis_id}: {str(e)}")
+            
+            # Update database with error
+            analysis = VideoAnalysis.query.get(analysis_id)
+            if analysis:
+                analysis.status = 'failed'
+                analysis.error_message = str(e)
+                db.session.commit()
+            
+            raise self.retry(exc=e, countdown=60, max_retries=3)
 
 # Error Handlers
 @app.errorhandler(404)

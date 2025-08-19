@@ -439,10 +439,10 @@ class SpeechAnalyzer:
         clarity_score = min(100, clarity_score / 5000)  # Scaled clarity
         
         return {
-            'pace': round(pace_score, 1),
-            'volume': round(volume_score, 1),
-            'pitch': round(pitch_score, 1),
-            'clarity': round(clarity_score, 1)
+            'pace': round(float(pace_score), 1),
+            'volume': round(float(volume_score), 1),
+            'pitch': round(float(pitch_score), 1),
+            'clarity': round(float(clarity_score), 1)
         }
 
 class BodyLanguageAnalyzer:
@@ -762,28 +762,51 @@ class LocalVideoAnalyzer:
             results = {}
             
             # 1. Emotion Analysis (10-25%)
+            logger.info("Starting emotion analysis")
             results['emotion'] = self.emotion_analyzer.analyze_video(self.video_path, self.progress_callback)
+            logger.info(f"Emotion analysis result: {results['emotion']}")
             
             # 2. Eye Contact Analysis (25-40%)  
+            logger.info("Starting eye contact analysis")
             results['eye_contact'] = self.eye_contact_analyzer.analyze_video(self.video_path, self.progress_callback)
+            logger.info(f"Eye contact analysis result: {results['eye_contact']}")
             
             # 3. Speech Analysis (40-70%)
+            logger.info("Starting speech analysis - extracting audio")
             audio, sr = self.speech_analyzer.extract_audio(self.video_path)
+            logger.info(f"Audio extracted: {len(audio)} samples at {sr}Hz")
+            
+            logger.info("Transcribing audio")
             transcript = self.speech_analyzer.transcribe_audio(audio, sr, self.progress_callback)
+            logger.info(f"Transcript result: '{transcript}' (length: {len(transcript)} chars)")
             results['transcript'] = transcript
+            
+            logger.info("Analyzing sentiment")
             results['sentiment'] = self.speech_analyzer.analyze_sentiment(transcript)
+            logger.info(f"Sentiment analysis result: {results['sentiment']}")
+            
+            logger.info("Detecting filler words")
             results['filler_words'] = self.speech_analyzer.detect_filler_words(transcript)
+            logger.info(f"Filler words result: {results['filler_words']}")
+            
+            logger.info("Analyzing vocal variety")
             results['vocal_variety'] = self.speech_analyzer.analyze_vocal_variety(audio, sr, self.progress_callback)
+            logger.info(f"Vocal variety result: {results['vocal_variety']}")
             
             # 4. Body Language Analysis (70-85%)
+            logger.info("Starting body language analysis")
             results['body_language'] = self.body_language_analyzer.analyze_video(self.video_path, self.progress_callback)
+            logger.info(f"Body language result: {results['body_language']}")
             
             # 5. Calculate Overall Score (85-95%)
             if self.progress_callback:
                 self.progress_callback(85, "Calculating overall score")
             
+            logger.info("Calculating overall score")
             results['overall_score'] = self._calculate_overall_score(results)
             results['duration'] = round(duration, 2)
+            
+            logger.info(f"Final results summary: emotion={results.get('emotion', {}).get('dominant', 'N/A')}, transcript_len={len(results.get('transcript', ''))}, vocal_variety_keys={list(results.get('vocal_variety', {}).keys())}, overall_score={results['overall_score']}")
             
             if self.progress_callback:
                 self.progress_callback(100, "Analysis complete")

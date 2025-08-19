@@ -243,9 +243,12 @@ class SpeechAnalyzer:
     """Speech-to-text and vocal analysis"""
     
     def __init__(self):
-        # Initialize Whisper for speech recognition
-        self.processor = WhisperProcessor.from_pretrained("openai/whisper-base")
-        self.model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-base")
+        # Initialize Whisper for speech recognition (using larger model for better accuracy)
+        self.processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+        self.model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+        
+        # Set forced decoder IDs for English transcription
+        self.forced_decoder_ids = self.processor.get_decoder_prompt_ids(language="en", task="transcribe")
         
         # Initialize sentiment analysis
         self.sentiment_analyzer = pipeline("sentiment-analysis", 
@@ -265,7 +268,7 @@ class SpeechAnalyzer:
         }
     
     def extract_audio(self, video_path):
-        """Extract audio from video using FFmpeg"""
+        """Extract audio from video using FFmpeg with noise reduction"""
         import subprocess
         import tempfile
         
@@ -274,13 +277,14 @@ class SpeechAnalyzer:
             temp_audio_path = temp_audio.name
         
         try:
-            # Use FFmpeg to extract audio (use full path)
+            # Use FFmpeg to extract audio with noise reduction and normalization
             cmd = [
                 '/usr/bin/ffmpeg', '-i', video_path, 
                 '-vn',  # No video
                 '-acodec', 'pcm_s16le',  # PCM 16-bit
                 '-ar', '16000',  # Sample rate 16kHz
                 '-ac', '1',  # Mono
+                '-af', 'highpass=f=80,lowpass=f=8000,volume=2.0',  # Audio filters for speech
                 '-y',  # Overwrite output
                 temp_audio_path
             ]
@@ -292,6 +296,9 @@ class SpeechAnalyzer:
             # Load the extracted audio
             audio, sr = librosa.load(temp_audio_path, sr=16000)
             
+            # Additional audio preprocessing for better transcription
+            audio = self._preprocess_audio(audio, sr)
+            
             return audio, sr
             
         finally:
@@ -301,24 +308,124 @@ class SpeechAnalyzer:
             except:
                 pass
     
+    def _preprocess_audio(self, audio, sr):
+        """Preprocess audio for better transcription quality"""
+        # Remove silence at the beginning and end
+        audio_trimmed, _ = librosa.effects.trim(audio, top_db=20)
+        
+        # Normalize audio volume
+        if len(audio_trimmed) > 0:
+            audio_normalized = librosa.util.normalize(audio_trimmed)
+            return audio_normalized
+        
+        return audio
+    
     def transcribe_audio(self, audio, sr, progress_callback=None):
-        """Convert speech to text using Whisper"""
+        """Convert speech to text using Whisper with chunking for long audio"""
         if progress_callback:
             progress_callback(35, "Converting speech to text")
         
-        # Prepare audio for Whisper
-        inputs = self.processor(audio, sampling_rate=sr, return_tensors="pt")
+        # Whisper works best with 30-second chunks
+        chunk_length_samples = 30 * sr  # 30 seconds
+        audio_length = len(audio)
         
-        # Generate transcription
-        with torch.no_grad():
-            predicted_ids = self.model.generate(inputs["input_features"])
+        if audio_length <= chunk_length_samples:
+            # Short audio - process directly
+            return self._transcribe_chunk(audio, sr)
         
-        transcription = self.processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+        # Long audio - process in chunks with overlap to avoid cutting words
+        overlap_samples = 2 * sr  # 2 second overlap
+        transcriptions = []
+        
+        num_chunks = int(np.ceil(audio_length / (chunk_length_samples - overlap_samples)))
+        
+        for i in range(num_chunks):
+            start_idx = i * (chunk_length_samples - overlap_samples)
+            end_idx = min(start_idx + chunk_length_samples, audio_length)
+            
+            chunk = audio[start_idx:end_idx]
+            
+            # Skip very short chunks (less than 1 second)
+            if len(chunk) < sr:
+                continue
+            
+            chunk_transcript = self._transcribe_chunk(chunk, sr)
+            
+            if chunk_transcript.strip():
+                # Remove overlap words from previous chunk
+                if i > 0 and transcriptions:
+                    chunk_transcript = self._remove_overlap(transcriptions[-1], chunk_transcript)
+                
+                transcriptions.append(chunk_transcript.strip())
+            
+            # Update progress
+            if progress_callback:
+                progress = 35 + (i + 1) / num_chunks * 15  # 35-50% progress
+                progress_callback(int(progress), f"Transcribing audio chunk {i+1}/{num_chunks}")
+        
+        # Combine all transcriptions
+        full_transcript = " ".join(transcriptions)
         
         if progress_callback:
             progress_callback(50, "Processing speech content")
         
-        return transcription
+        logger.info(f"Transcribed {num_chunks} chunks, total length: {len(full_transcript)} characters")
+        return full_transcript
+    
+    def _transcribe_chunk(self, audio_chunk, sr):
+        """Transcribe a single audio chunk"""
+        try:
+            # Prepare audio for Whisper
+            inputs = self.processor(
+                audio_chunk, 
+                sampling_rate=sr, 
+                return_tensors="pt",
+                padding=True
+            )
+            
+            # Generate transcription with proper English configuration
+            with torch.no_grad():
+                predicted_ids = self.model.generate(
+                    inputs["input_features"],
+                    forced_decoder_ids=self.forced_decoder_ids,
+                    max_new_tokens=220,  # Safe limit for whisper-small
+                    num_beams=5,  # Better quality with beam search
+                    do_sample=False,
+                    suppress_tokens=[-1]  # Suppress end-of-sequence token
+                )
+            
+            transcription = self.processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+            return transcription.strip()
+            
+        except Exception as e:
+            logger.error(f"Error transcribing chunk: {e}")
+            return ""
+    
+    def _remove_overlap(self, prev_transcript, curr_transcript):
+        """Remove overlapping words between consecutive chunks"""
+        prev_words = prev_transcript.split()
+        curr_words = curr_transcript.split()
+        
+        if len(prev_words) < 5 or len(curr_words) < 5:
+            return curr_transcript
+        
+        # Look for overlap in last 5 words of previous and first 10 words of current
+        last_words = prev_words[-5:]
+        
+        for i in range(min(10, len(curr_words))):
+            curr_start = curr_words[:i+5] if i+5 < len(curr_words) else curr_words
+            
+            # Check if there's significant overlap
+            overlap_count = 0
+            for word in last_words:
+                if word.lower() in [w.lower() for w in curr_start]:
+                    overlap_count += 1
+            
+            # If more than 2 words overlap, remove them from current transcript
+            if overlap_count >= 2:
+                return " ".join(curr_words[i+1:])
+        
+        return curr_transcript
     
     def analyze_sentiment(self, text):
         """Analyze sentiment of the speech"""

@@ -35,10 +35,10 @@
             --success: 142 76% 36%;
             --warning: 48 96% 53%;
             --gradient-primary: linear-gradient(135deg, hsl(263, 70%, 50%), hsl(229, 84%, 60%));
-            --gradient-secondary: linear-gradient(135deg, hsl(240, 10%, 3.9%), hsl(263, 70%, 50%));
+            --gradient-secondary: linear-gradient(135deg, hsl(240, 10%, 8%), hsl(263, 70%, 50%));
             --gradient-accent: linear-gradient(90deg, hsl(263, 70%, 50%), hsl(199, 89%, 48%));
             --shadow-glow: 0 0 40px hsl(263 70% 50% / 0.3);
-            --shadow-card: 0 10px 30px -10px hsl(0 0% 0% / 0.3);
+            --shadow-card: 0 10px 30px -10px hsl(0 0% 0% / 0.3), 0 0 0 1px hsl(263 70% 50% / 0.1);
             --radius: 0.75rem;
         }
 
@@ -48,6 +48,25 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             min-height: 100vh;
             line-height: 1.6;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(ellipse at top, hsl(263 70% 50% / 0.1), transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Ensure content appears above the overlay */
+        body > * {
+            position: relative;
+            z-index: 1;
         }
 
         .gradient-text {
@@ -60,7 +79,7 @@
         .card-glow {
             box-shadow: var(--shadow-card);
             border: 1px solid hsl(var(--border));
-            background: hsl(var(--card) / 0.8);
+            background: hsl(var(--card) / 0.95);
             backdrop-filter: blur(12px);
             border-radius: var(--radius);
         }
@@ -75,7 +94,7 @@
 
         .upload-zone:hover,
         .upload-zone.drag-over {
-            background: hsl(var(--primary) / 0.1);
+            background: hsl(var(--primary) / 0.15);
             border-color: hsl(var(--primary));
             box-shadow: var(--shadow-glow);
             transform: scale(1.02);

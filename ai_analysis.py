@@ -619,36 +619,102 @@ class SpeechAnalyzer:
         if progress_callback:
             progress_callback(55, "Analyzing vocal patterns")
         
-        # Extract audio features
-        # Pitch analysis
-        pitches, magnitudes = librosa.piptrack(y=audio, sr=sr)
-        pitch_values = []
-        for t in range(pitches.shape[1]):
-            index = magnitudes[:, t].argmax()
-            pitch = pitches[index, t]
-            if pitch > 0:
-                pitch_values.append(pitch)
+        # Handle empty or invalid audio
+        if len(audio) == 0:
+            logger.warning("Empty audio provided to vocal variety analysis")
+            return {
+                'pace': 20.0,
+                'volume': 20.0,
+                'pitch': 20.0,
+                'clarity': 20.0
+            }
         
-        # Tempo and rhythm
-        tempo, beats = librosa.beat.beat_track(y=audio, sr=sr)
+        try:
+            # Extract audio features
+            # Pitch analysis
+            pitches, magnitudes = librosa.piptrack(y=audio, sr=sr)
+            pitch_values = []
+            for t in range(pitches.shape[1]):
+                index = magnitudes[:, t].argmax()
+                pitch = pitches[index, t]
+                if pitch > 0:
+                    pitch_values.append(pitch)
+            
+            # Tempo and rhythm
+            tempo, beats = librosa.beat.beat_track(y=audio, sr=sr)
+            
+            # Volume analysis (RMS energy)
+            rms = librosa.feature.rms(y=audio)[0]
+            
+            # Spectral features for clarity
+            spectral_centroids = librosa.feature.spectral_centroid(y=audio, sr=sr)[0]
+            
+        except Exception as e:
+            logger.error(f"Error in vocal variety analysis: {e}")
+            return {
+                'pace': 30.0,
+                'volume': 30.0, 
+                'pitch': 30.0,
+                'clarity': 30.0
+            }
         
-        # Volume analysis (RMS energy)
-        rms = librosa.feature.rms(y=audio)[0]
-        
-        # Spectral features for clarity
-        spectral_centroids = librosa.feature.spectral_centroid(y=audio, sr=sr)[0]
-        
-        # Calculate metrics
+        # Calculate raw metrics
         pitch_variance = np.var(pitch_values) if pitch_values else 0
         pitch_range = np.ptp(pitch_values) if pitch_values else 0
         volume_variance = np.var(rms)
+        volume_mean = np.mean(rms)
         clarity_score = np.mean(spectral_centroids)
         
-        # Normalize scores to 0-100
-        pace_score = min(100, max(0, (tempo - 60) / 120 * 100))  # Optimal around 120-180 BPM
-        volume_score = min(100, volume_variance * 1000)  # Scaled variance
-        pitch_score = min(100, pitch_variance / 1000)   # Scaled variance
-        clarity_score = min(100, clarity_score / 5000)  # Scaled clarity
+        # Realistic scoring with balanced ranges
+        # 1. Pace: Optimal speaking rate is 120-180 BPM (most people speak 100-200)
+        if tempo < 80:
+            pace_score = 30  # Too slow
+        elif tempo < 110:
+            pace_score = 45 + (tempo - 80) / 30 * 15  # Slow (45-60%)
+        elif tempo < 140:  # Sweet spot
+            pace_score = 65 + (tempo - 110) / 30 * 20  # Good (65-85%)
+        elif tempo < 180:
+            pace_score = 75 - abs(tempo - 160) / 20 * 10  # Decent (65-75%)
+        else:
+            pace_score = max(40, 75 - (tempo - 180) / 20 * 10)  # Too fast
+        
+        # 2. Volume: More conservative dynamic range expectations
+        volume_dynamic_range = np.ptp(rms) if len(rms) > 0 else 0
+        volume_level = volume_mean if volume_mean > 0 else 0
+        if volume_level < 0.005:  # Very quiet
+            volume_score = 25
+        elif volume_level < 0.02:  # Quiet
+            volume_score = 35 + (volume_level - 0.005) / 0.015 * 20  # 35-55%
+        elif volume_level < 0.1:  # Good level
+            volume_score = 55 + (volume_level - 0.02) / 0.08 * 15  # 55-70%
+        else:  # Strong level
+            volume_score = 70 + min(15, volume_dynamic_range * 1000)  # 70-85% max
+        
+        # 3. Pitch: More realistic variance expectations for natural speech
+        if pitch_variance < 50:
+            pitch_score = 30  # Very monotone
+        elif pitch_variance < 200:
+            pitch_score = 40 + (pitch_variance - 50) / 150 * 20  # Some variety (40-60%)
+        elif pitch_variance < 800:
+            pitch_score = 60 + (pitch_variance - 200) / 600 * 20  # Good variety (60-80%)
+        else:
+            pitch_score = 75 + min(10, (pitch_variance - 800) / 1000 * 10)  # Excellent (75-85%)
+        
+        # 4. Clarity: Realistic spectral centroid ranges for speech
+        if clarity_score < 800:
+            clarity_score = 25  # Very unclear
+        elif clarity_score < 1500:
+            clarity_score = 35 + (clarity_score - 800) / 700 * 25  # Poor (35-60%)
+        elif clarity_score < 2500:
+            clarity_score = 60 + (clarity_score - 1500) / 1000 * 20  # Good (60-80%)
+        else:
+            clarity_score = 75 + min(10, (clarity_score - 2500) / 1000 * 10)  # Excellent (75-85%)
+        
+        # Ensure all scores are within 0-100 range
+        pace_score = max(0, min(100, pace_score))
+        volume_score = max(0, min(100, volume_score)) 
+        pitch_score = max(0, min(100, pitch_score))
+        clarity_score = max(0, min(100, clarity_score))
         
         return {
             'pace': round(float(pace_score), 1),
@@ -685,6 +751,7 @@ class BodyLanguageAnalyzer:
         frame_count = 0
         
         prev_hand_positions = None
+        prev_body_positions = None  # Track body movement for energy
         
         while True:
             ret, frame = cap.read()
@@ -704,9 +771,13 @@ class BodyLanguageAnalyzer:
                     posture_score = self._analyze_posture(pose_results.pose_landmarks)
                     posture_scores.append(posture_score)
                     
-                    # Calculate energy level based on movement
-                    energy = self._calculate_energy(pose_results.pose_landmarks)
-                    energy_scores.append(energy)
+                    # Calculate energy level based on movement between frames
+                    energy = self._calculate_energy_movement(pose_results.pose_landmarks, prev_body_positions)
+                    if energy is not None:  # Only add if we have movement data
+                        energy_scores.append(energy)
+                    
+                    # Update previous positions for next frame
+                    prev_body_positions = self._extract_body_positions(pose_results.pose_landmarks)
                 
                 # Count gestures
                 if hand_results.multi_hand_landmarks:
@@ -779,23 +850,61 @@ class BodyLanguageAnalyzer:
         posture_score = 100 - (shoulder_slope * 500 + head_alignment * 300 + spine_alignment * 200)
         return max(0, min(100, posture_score))
     
-    def _calculate_energy(self, landmarks):
-        """Calculate energy level based on body movement"""
-        # Get key points for movement calculation
+    def _extract_body_positions(self, landmarks):
+        """Extract key body positions for movement tracking"""
         key_points = [
             landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_WRIST],
             landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_WRIST],
+            landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_ELBOW],
+            landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_ELBOW],
             landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_SHOULDER],
             landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_SHOULDER],
+            landmarks.landmark[self.mp_pose.PoseLandmark.NOSE],
         ]
         
-        # Calculate variance in positions (proxy for energy/movement)
-        positions = [(p.x, p.y) for p in key_points]
-        center = np.mean(positions, axis=0)
-        distances = [np.linalg.norm(np.array(pos) - center) for pos in positions]
-        energy = np.var(distances) * 1000  # Scale for percentage
+        return [(p.x, p.y, p.z) for p in key_points]
+    
+    def _calculate_energy_movement(self, landmarks, prev_positions):
+        """Calculate energy level based on actual movement between frames"""
+        if prev_positions is None:
+            return None  # Need previous frame for movement calculation
         
-        return min(100, max(0, energy))
+        current_positions = self._extract_body_positions(landmarks)
+        
+        # Calculate movement distances for each body part
+        total_movement = 0
+        movement_count = 0
+        
+        for i, (current, previous) in enumerate(zip(current_positions, prev_positions)):
+            # Calculate 3D distance moved
+            distance = np.sqrt(
+                (current[0] - previous[0])**2 + 
+                (current[1] - previous[1])**2 + 
+                (current[2] - previous[2])**2
+            )
+            
+            # Weight different body parts (hands and arms move more in gestures)
+            if i < 4:  # Wrists and elbows - more important for energy
+                weight = 2.0
+            elif i < 6:  # Shoulders - moderate importance  
+                weight = 1.5
+            else:  # Head - less important for body energy
+                weight = 1.0
+            
+            total_movement += distance * weight
+            movement_count += weight
+        
+        # Average weighted movement
+        avg_movement = total_movement / movement_count if movement_count > 0 else 0
+        
+        # Scale to 0-100 percentage (typical movement range is 0-0.1 in normalized coordinates)
+        # Multiply by 500 to get reasonable scores (0.02 movement = 10%, 0.1 movement = 50%)
+        energy_score = min(100, avg_movement * 500)
+        
+        # Apply minimum baseline (even minimal movement should show some energy)
+        energy_score = max(20, energy_score)
+        
+        return energy_score
     
     def _get_hand_center(self, hand_landmarks):
         """Get center position of hand"""

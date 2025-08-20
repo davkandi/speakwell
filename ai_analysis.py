@@ -267,11 +267,20 @@ class SpeechAnalyzer:
             logger.warning("spaCy model not found. Install with: python -m spacy download en_core_web_sm")
             self.nlp = None
         
-        # Filler words to detect
-        self.filler_words = {
-            'um', 'uh', 'uhm', 'like', 'you know', 'so', 'actually', 
+        # Filler words to detect (single words only)
+        self.single_filler_words = {
+            'um', 'uh', 'uhm', 'like', 'so', 'actually', 
             'basically', 'literally', 'totally', 'right', 'okay', 'well'
         }
+        
+        # Multi-word fillers with contextual patterns
+        self.multi_word_fillers = [
+            r'\byou know\b(?!\s+(?:what|the|that|how|why|when|where))',  # "you know" not followed by question words
+            r'\bi mean\b',
+            r'\bi think\b(?!\s+(?:that|about|of))',  # "i think" not followed by specific objects
+            r'\bkind of\b',
+            r'\bsort of\b'
+        ]
     
     def extract_audio(self, video_path):
         """Extract audio from video using FFmpeg with noise reduction"""
@@ -540,38 +549,70 @@ class SpeechAnalyzer:
         }
     
     def detect_filler_words(self, text):
-        """Detect and count filler words in speech"""
+        """Detect and count filler words in speech with context awareness"""
         # Normalize text
         text_lower = text.lower()
-        words = re.findall(r'\b\w+\b', text_lower)
+        # Clean up transcript artifacts
+        text_clean = re.sub(r'\[.*?\]|\(.*?\)', '', text_lower)  # Remove [APPLAUSE], (static) etc
+        
+        words = re.findall(r'\b\w+\b', text_clean)
         total_words = len(words)
         
-        # Count filler words
         filler_counts = Counter()
-        for word in words:
-            if word in self.filler_words:
-                filler_counts[word] += 1
+        processed_positions = set()
         
-        # Handle multi-word fillers
-        for phrase in ['you know', 'i mean', 'kind of', 'sort of']:
-            phrase_count = len(re.findall(r'\b' + phrase + r'\b', text_lower))
-            if phrase_count > 0:
-                filler_counts[phrase] = phrase_count
+        # First, find multi-word fillers to avoid double counting
+        for pattern in self.multi_word_fillers:
+            matches = re.finditer(pattern, text_clean, re.IGNORECASE)
+            for match in matches:
+                phrase = match.group().strip()
+                filler_counts[phrase] += 1
+                # Mark positions of words in this phrase as processed
+                start_pos = len(re.findall(r'\b\w+\b', text_clean[:match.start()]))
+                phrase_words = re.findall(r'\b\w+\b', phrase)
+                for i in range(len(phrase_words)):
+                    processed_positions.add(start_pos + i)
+        
+        # Then count single word fillers, excluding those already counted in phrases  
+        for i, word in enumerate(words):
+            if i not in processed_positions and word in self.single_filler_words:
+                filler_counts[word] += 1
         
         total_fillers = sum(filler_counts.values())
         filler_percentage = (total_fillers / total_words * 100) if total_words > 0 else 0
         
-        # Convert to list of dictionaries
+        # Convert to list of dictionaries, sorted by count
         words_list = [
             {'word': word, 'count': count}
             for word, count in filler_counts.most_common(10)
+            if count > 0  # Only include words that were actually found
         ]
         
         return {
             'count': total_fillers,
             'percentage': round(filler_percentage, 2),
-            'words': words_list
+            'words': words_list,
+            'highlighted_text': self._highlight_filler_words(text_clean, filler_counts)
         }
+    
+    def _highlight_filler_words(self, text, filler_counts):
+        """Create highlighted version of text with filler words marked"""
+        highlighted = text
+        
+        # Highlight all filler words/phrases that were actually found
+        for filler_word in filler_counts.keys():
+            if filler_counts[filler_word] > 0:
+                # Check if it's a multi-word filler
+                if ' ' in filler_word:
+                    # Multi-word filler - use exact phrase matching
+                    pattern = r'\b' + re.escape(filler_word) + r'\b'
+                    highlighted = re.sub(pattern, r'<mark class="filler-word">\g<0></mark>', highlighted, flags=re.IGNORECASE)
+                else:
+                    # Single word filler
+                    pattern = r'\b' + re.escape(filler_word) + r'\b'
+                    highlighted = re.sub(pattern, r'<mark class="filler-word">\g<0></mark>', highlighted, flags=re.IGNORECASE)
+        
+        return highlighted
     
     def analyze_vocal_variety(self, audio, sr, progress_callback=None):
         """Analyze vocal characteristics"""

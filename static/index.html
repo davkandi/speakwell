@@ -236,11 +236,18 @@
         }
 
         .filler-word {
-            background: hsl(var(--destructive));
-            color: hsl(var(--destructive-foreground));
+            background: hsl(var(--destructive) / 0.15);
+            color: hsl(var(--destructive));
             padding: 2px 6px;
             border-radius: 4px;
             font-weight: 600;
+            border: 1px solid hsl(var(--destructive) / 0.3);
+            transition: all 0.2s ease;
+        }
+        
+        .filler-word:hover {
+            background: hsl(var(--destructive) / 0.2);
+            transform: scale(1.05);
         }
 
         .hidden {
@@ -956,16 +963,25 @@
                 </div>
             `;
 
-            // Populate transcript
+            // Populate transcript with proper highlighting
             const transcriptContent = document.getElementById('transcript-content');
-            const words = data.transcript.split(' ');
-            const fillerWordsList = data.fillerWords.words.map(fw => fw.word.toLowerCase());
             
-            transcriptContent.innerHTML = words.map(word => {
-                const cleanWord = word.toLowerCase().replace(/[.,!?]/g, '');
-                const isFillerWord = fillerWordsList.includes(cleanWord);
-                return isFillerWord ? `<span class="filler-word">${word}</span>` : word;
-            }).join(' ');
+            // Use highlighted text if available, otherwise fall back to basic highlighting
+            if (data.fillerWords.highlighted_text) {
+                transcriptContent.innerHTML = data.fillerWords.highlighted_text.replace(
+                    /<mark class="filler-word">/g, '<span class="filler-word">'
+                ).replace(/<\/mark>/g, '</span>');
+            } else {
+                // Fallback for older analyses
+                const words = data.transcript.split(' ');
+                const fillerWordsList = data.fillerWords.words.map(fw => fw.word.toLowerCase());
+                
+                transcriptContent.innerHTML = words.map(word => {
+                    const cleanWord = word.toLowerCase().replace(/[.,!?]/g, '');
+                    const isFillerWord = fillerWordsList.includes(cleanWord);
+                    return isFillerWord ? `<span class="filler-word">${word}</span>` : word;
+                }).join(' ');
+            }
 
             lucide.createIcons();
         }

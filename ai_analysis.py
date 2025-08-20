@@ -81,8 +81,8 @@ class EmotionAnalyzer:
             if not ret:
                 break
             
-            # Analyze every 30th frame to reduce processing time
-            if frame_count % 30 == 0:
+            # Analyze every 60th frame for speed (2-3x faster)
+            if frame_count % 60 == 0:
                 emotions = self.analyze_frame(frame)
                 if emotions:
                     all_emotions.extend(emotions)
@@ -242,10 +242,16 @@ class EyeContactAnalyzer:
 class SpeechAnalyzer:
     """Speech-to-text and vocal analysis"""
     
-    def __init__(self):
-        # Initialize Whisper for speech recognition (using larger model for better accuracy)
-        self.processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-        self.model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+    def __init__(self, model_size="small"):
+        # Initialize Whisper for speech recognition (small for speed, medium for accuracy)
+        model_name = f"openai/whisper-{model_size}"
+        self.processor = WhisperProcessor.from_pretrained(model_name)
+        self.model = WhisperForConditionalGeneration.from_pretrained(model_name)
+        
+        # Move to GPU if available for faster processing
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = self.model.to(self.device)
+        logger.info(f"Using device: {self.device} for Whisper model")
         
         # Set forced decoder IDs for English transcription
         self.forced_decoder_ids = self.processor.get_decoder_prompt_ids(language="en", task="transcribe")
@@ -277,14 +283,14 @@ class SpeechAnalyzer:
             temp_audio_path = temp_audio.name
         
         try:
-            # Use FFmpeg to extract audio with noise reduction and normalization
+            # Use FFmpeg for fast basic audio extraction
             cmd = [
                 '/usr/bin/ffmpeg', '-i', video_path, 
                 '-vn',  # No video
                 '-acodec', 'pcm_s16le',  # PCM 16-bit
                 '-ar', '16000',  # Sample rate 16kHz
                 '-ac', '1',  # Mono
-                '-af', 'highpass=f=80,lowpass=f=8000,volume=2.0',  # Audio filters for speech
+                '-af', 'volume=2.0',  # Basic volume normalization only
                 '-y',  # Overwrite output
                 temp_audio_path
             ]
@@ -293,11 +299,13 @@ class SpeechAnalyzer:
             if result.returncode != 0:
                 raise Exception(f"FFmpeg failed: {result.stderr}")
             
-            # Load the extracted audio
+            # Load the extracted audio with minimal preprocessing
             audio, sr = librosa.load(temp_audio_path, sr=16000)
             
-            # Additional audio preprocessing for better transcription
-            audio = self._preprocess_audio(audio, sr)
+            # Basic preprocessing - just trim silence and normalize
+            if len(audio) > 0:
+                audio, _ = librosa.effects.trim(audio, top_db=20)
+                audio = librosa.util.normalize(audio) * 0.8
             
             return audio, sr
             
@@ -309,32 +317,65 @@ class SpeechAnalyzer:
                 pass
     
     def _preprocess_audio(self, audio, sr):
-        """Preprocess audio for better transcription quality"""
-        # Remove silence at the beginning and end
-        audio_trimmed, _ = librosa.effects.trim(audio, top_db=20)
+        """Advanced audio preprocessing for better transcription quality"""
+        if len(audio) == 0:
+            return audio
         
-        # Normalize audio volume
-        if len(audio_trimmed) > 0:
-            audio_normalized = librosa.util.normalize(audio_trimmed)
-            return audio_normalized
+        # 1. Remove silence at the beginning and end with more aggressive trimming
+        audio_trimmed, _ = librosa.effects.trim(audio, top_db=25, frame_length=2048, hop_length=512)
         
-        return audio
+        if len(audio_trimmed) == 0:
+            return audio
+        
+        # 2. Apply noise reduction using spectral gating
+        # Get noise profile from first 0.5 seconds (likely to contain noise)
+        noise_sample_length = min(int(0.5 * sr), len(audio_trimmed) // 4)
+        if noise_sample_length > 0:
+            noise_sample = audio_trimmed[:noise_sample_length]
+            noise_power = np.mean(noise_sample ** 2)
+            
+            # Simple noise gate - reduce audio below noise threshold
+            gate_threshold = noise_power * 3  # 3x noise level
+            audio_gated = np.where(audio_trimmed ** 2 > gate_threshold, audio_trimmed, audio_trimmed * 0.3)
+            audio_trimmed = audio_gated
+        
+        # 3. Dynamic range compression for more consistent volume
+        def compress_audio(audio, ratio=4.0, threshold=0.5):
+            """Apply compression to reduce dynamic range"""
+            abs_audio = np.abs(audio)
+            compressed = np.where(
+                abs_audio > threshold,
+                threshold + (abs_audio - threshold) / ratio,
+                abs_audio
+            )
+            return np.sign(audio) * compressed
+        
+        audio_compressed = compress_audio(audio_trimmed)
+        
+        # 4. Normalize to optimal level for Whisper (not too loud, not too quiet)
+        audio_normalized = librosa.util.normalize(audio_compressed) * 0.8
+        
+        # 5. Apply gentle pre-emphasis to boost higher frequencies (helps with clarity)
+        pre_emphasis = 0.97
+        audio_emphasized = np.append(audio_normalized[0], audio_normalized[1:] - pre_emphasis * audio_normalized[:-1])
+        
+        return audio_emphasized
     
     def transcribe_audio(self, audio, sr, progress_callback=None):
         """Convert speech to text using Whisper with chunking for long audio"""
         if progress_callback:
             progress_callback(35, "Converting speech to text")
         
-        # Whisper works best with 30-second chunks
-        chunk_length_samples = 30 * sr  # 30 seconds
+        # Optimized chunking for speed vs accuracy balance
+        chunk_length_samples = 15 * sr  # 15 seconds for faster processing
         audio_length = len(audio)
         
         if audio_length <= chunk_length_samples:
             # Short audio - process directly
             return self._transcribe_chunk(audio, sr)
         
-        # Long audio - process in chunks with overlap to avoid cutting words
-        overlap_samples = 2 * sr  # 2 second overlap
+        # Long audio - process in chunks with minimal overlap
+        overlap_samples = 1 * sr  # 1 second overlap for speed
         transcriptions = []
         
         num_chunks = int(np.ceil(audio_length / (chunk_length_samples - overlap_samples)))
@@ -375,23 +416,26 @@ class SpeechAnalyzer:
     def _transcribe_chunk(self, audio_chunk, sr):
         """Transcribe a single audio chunk"""
         try:
-            # Prepare audio for Whisper
+            # Prepare audio for Whisper and move to device
             inputs = self.processor(
                 audio_chunk, 
                 sampling_rate=sr, 
                 return_tensors="pt",
                 padding=True
             )
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
-            # Generate transcription with proper English configuration
+            # Generate transcription with speed-optimized parameters
             with torch.no_grad():
                 predicted_ids = self.model.generate(
                     inputs["input_features"],
                     forced_decoder_ids=self.forced_decoder_ids,
-                    max_new_tokens=220,  # Safe limit for whisper-small
-                    num_beams=5,  # Better quality with beam search
+                    max_new_tokens=200,  # Reduced for speed
+                    num_beams=1,  # Greedy decoding for speed
+                    temperature=0.0,  # Deterministic output
                     do_sample=False,
-                    suppress_tokens=[-1]  # Suppress end-of-sequence token
+                    suppress_tokens=[-1],  # Suppress end-of-sequence token
+                    return_dict_in_generate=False
                 )
             
             transcription = self.processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
@@ -402,27 +446,47 @@ class SpeechAnalyzer:
             return ""
     
     def _remove_overlap(self, prev_transcript, curr_transcript):
-        """Remove overlapping words between consecutive chunks"""
+        """Remove overlapping words between consecutive chunks with smart detection"""
         prev_words = prev_transcript.split()
         curr_words = curr_transcript.split()
         
-        if len(prev_words) < 5 or len(curr_words) < 5:
+        if len(prev_words) < 3 or len(curr_words) < 3:
             return curr_transcript
         
-        # Look for overlap in last 5 words of previous and first 10 words of current
+        # Look for exact phrase matches first (more reliable)
+        max_overlap_check = min(8, len(prev_words), len(curr_words))
+        
+        for overlap_len in range(max_overlap_check, 2, -1):  # Start with longer overlaps
+            if overlap_len > len(prev_words) or overlap_len > len(curr_words):
+                continue
+                
+            prev_end = prev_words[-overlap_len:]
+            curr_start = curr_words[:overlap_len]
+            
+            # Check for exact match (case insensitive)
+            if [w.lower().strip('.,!?') for w in prev_end] == [w.lower().strip('.,!?') for w in curr_start]:
+                logger.info(f"Found exact overlap of {overlap_len} words: {' '.join(curr_start)}")
+                return " ".join(curr_words[overlap_len:])
+        
+        # Fallback: Look for partial matches with word similarity
         last_words = prev_words[-5:]
         
-        for i in range(min(10, len(curr_words))):
-            curr_start = curr_words[:i+5] if i+5 < len(curr_words) else curr_words
+        for i in range(min(8, len(curr_words))):
+            curr_start = curr_words[:i+3] if i+3 < len(curr_words) else curr_words
             
-            # Check if there's significant overlap
-            overlap_count = 0
-            for word in last_words:
-                if word.lower() in [w.lower() for w in curr_start]:
-                    overlap_count += 1
+            # Count similar words (handling punctuation)
+            similarity_count = 0
+            for prev_word in last_words:
+                prev_clean = prev_word.lower().strip('.,!?')
+                for curr_word in curr_start:
+                    curr_clean = curr_word.lower().strip('.,!?')
+                    if prev_clean == curr_clean and len(prev_clean) > 2:  # Ignore very short words
+                        similarity_count += 1
+                        break
             
-            # If more than 2 words overlap, remove them from current transcript
-            if overlap_count >= 2:
+            # If more than half the words are similar, consider it overlap
+            if similarity_count >= len(last_words) // 2 and similarity_count >= 2:
+                logger.info(f"Found partial overlap of {similarity_count} similar words")
                 return " ".join(curr_words[i+1:])
         
         return curr_transcript
@@ -840,10 +904,10 @@ class LocalVideoAnalyzer:
         self.video_path = video_path
         self.progress_callback = progress_callback
         
-        # Initialize analyzers
+        # Initialize analyzers with speed optimization
         self.emotion_analyzer = EmotionAnalyzer()
         self.eye_contact_analyzer = EyeContactAnalyzer()
-        self.speech_analyzer = SpeechAnalyzer()
+        self.speech_analyzer = SpeechAnalyzer(model_size="small")  # Use fast model
         self.body_language_analyzer = BodyLanguageAnalyzer()
     
     def analyze(self):

@@ -1070,7 +1070,7 @@
         }
 
         async function pollForResults(videoId) {
-            const maxAttempts = 120; // 10 minutes max (5 second intervals)
+            const maxAttempts = 600; // 30 minutes max (3 second intervals)
             let attempts = 0;
 
             // Initialize analysis steps display

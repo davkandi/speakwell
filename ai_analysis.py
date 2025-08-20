@@ -174,7 +174,13 @@ class EyeContactAnalyzer:
                         current_gaze_duration += 1
                     else:
                         if current_gaze_duration > 0:
-                            gaze_durations.append(current_gaze_duration * 10 / fps)  # Convert to seconds
+                            # Convert analyzed frames to actual time
+                            duration_seconds = (current_gaze_duration * 10) / fps  # 10 = frame sampling rate
+                            
+                            # Only count durations longer than 0.5 seconds (filter noise)
+                            if duration_seconds >= 0.5:
+                                gaze_durations.append(duration_seconds)
+                            
                             current_gaze_duration = 0
                     
                     total_analyzed_frames += 1
@@ -189,7 +195,10 @@ class EyeContactAnalyzer:
         
         # Add final gaze duration if applicable
         if current_gaze_duration > 0:
-            gaze_durations.append(current_gaze_duration * 10 / fps)
+            duration_seconds = (current_gaze_duration * 10) / fps
+            # Only count durations longer than 0.5 seconds (filter noise)
+            if duration_seconds >= 0.5:
+                gaze_durations.append(duration_seconds)
         
         # Calculate metrics
         if total_analyzed_frames == 0:
@@ -200,7 +209,23 @@ class EyeContactAnalyzer:
             }
         
         percentage = (eye_contact_frames / total_analyzed_frames) * 100
-        avg_duration = np.mean(gaze_durations) if gaze_durations else 0
+        
+        # Calculate average duration with better fallback logic
+        if gaze_durations:
+            avg_duration = np.mean(gaze_durations)
+        else:
+            # If no meaningful durations detected but eye contact exists, estimate
+            if eye_contact_frames > 0:
+                # Estimate duration based on continuous eye contact assumption
+                total_video_seconds = total_frames / fps if fps > 0 else 1
+                estimated_eye_contact_time = (eye_contact_frames / total_analyzed_frames) * total_video_seconds
+                # Assume if high percentage but no durations, it might be continuous
+                if percentage > 80:
+                    avg_duration = max(2.0, estimated_eye_contact_time / 3)  # Conservative estimate
+                else:
+                    avg_duration = max(1.0, estimated_eye_contact_time / 5)  # Multiple shorter periods
+            else:
+                avg_duration = 0
         
         # Determine rating
         if percentage >= 70:
@@ -222,22 +247,39 @@ class EyeContactAnalyzer:
         """Determine if person is looking at camera based on eye landmarks"""
         h, w = frame_shape[:2]
         
-        # Get eye landmarks
-        left_eye = [landmarks.landmark[i] for i in [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]]
-        right_eye = [landmarks.landmark[i] for i in [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]]
+        # Get key facial landmarks for more robust gaze detection
+        # Use specific eye corner and pupil landmarks
+        left_eye_inner = landmarks.landmark[133]   # Left eye inner corner
+        left_eye_outer = landmarks.landmark[33]    # Left eye outer corner  
+        right_eye_inner = landmarks.landmark[362]  # Right eye inner corner
+        right_eye_outer = landmarks.landmark[263]  # Right eye outer corner
         
-        # Calculate eye aspect ratios and gaze direction
-        # This is a simplified approach - in production, use more sophisticated gaze estimation
-        left_center = np.mean([(p.x * w, p.y * h) for p in left_eye], axis=0)
-        right_center = np.mean([(p.x * w, p.y * h) for p in right_eye], axis=0)
+        # Get nose tip for reference
+        nose_tip = landmarks.landmark[1]
         
-        # Calculate if eyes are approximately centered (looking forward)
+        # Calculate eye centers more accurately
+        left_eye_center_x = (left_eye_inner.x + left_eye_outer.x) / 2 * w
+        right_eye_center_x = (right_eye_inner.x + right_eye_outer.x) / 2 * w
+        avg_eye_center_x = (left_eye_center_x + right_eye_center_x) / 2
+        
+        # Calculate face center using nose as reference
+        nose_x = nose_tip.x * w
         face_center_x = w / 2
-        eye_center_x = (left_center[0] + right_center[0]) / 2
         
-        # Threshold for "looking at camera"
-        threshold = w * 0.1  # 10% of frame width
-        return abs(eye_center_x - face_center_x) < threshold
+        # Multi-factor eye contact detection
+        # Factor 1: Eyes should be approximately centered relative to face
+        eye_face_alignment = abs(avg_eye_center_x - nose_x) / w
+        
+        # Factor 2: Face should be roughly centered in frame
+        face_frame_alignment = abs(nose_x - face_center_x) / w
+        
+        # Factor 3: Eye symmetry (both eyes should be at similar distance from nose)
+        eye_symmetry = abs(left_eye_center_x - nose_x - (nose_x - right_eye_center_x)) / w
+        
+        # More lenient thresholds for natural speaking scenarios
+        return (eye_face_alignment < 0.15 and    # Eyes aligned with face
+                face_frame_alignment < 0.2 and   # Face reasonably centered  
+                eye_symmetry < 0.1)               # Eyes symmetric
 
 class SpeechAnalyzer:
     """Speech-to-text and vocal analysis"""

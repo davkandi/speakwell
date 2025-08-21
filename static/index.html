@@ -531,16 +531,42 @@
                 </div>
 
                 <!-- Overall Score -->
-                <div class="card-glow text-center p-8 mb-8">
-                    <h3 class="text-2xl font-semibold gradient-text mb-2">Overall Speaking Score</h3>
-                    <p class="mb-6" style="color: hsl(var(--muted-foreground));">
-                        Your comprehensive public speaking assessment
-                    </p>
-                    <div class="text-6xl font-bold mb-4" style="color: hsl(var(--primary));" id="overall-score">85</div>
-                    <div class="progress-bar mb-4" style="max-width: 300px; margin: 0 auto;">
-                        <div id="overall-progress" class="progress-fill" style="width: 85%"></div>
+                <div class="card-glow p-8 mb-8">
+                    <div class="text-center mb-6">
+                        <h3 class="text-2xl font-semibold gradient-text mb-2">Overall Speaking Score</h3>
+                        <p class="mb-6" style="color: hsl(var(--muted-foreground));">
+                            Your comprehensive public speaking assessment
+                        </p>
+                        <div class="text-6xl font-bold mb-4" style="color: hsl(var(--primary));" id="overall-score">74</div>
+                        <div class="progress-bar mb-4" style="max-width: 300px; margin: 0 auto;">
+                            <div id="overall-progress" class="progress-fill" style="width: 74%"></div>
+                        </div>
                     </div>
-                    <span id="overall-badge" class="badge badge-success">Excellent</span>
+                    
+                    <!-- Performance Summary -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+                        <!-- Strengths -->
+                        <div class="p-4 rounded-lg" style="background: hsl(var(--success) / 0.1); border: 1px solid hsl(var(--success) / 0.2);">
+                            <div class="flex items-center mb-3">
+                                <i data-lucide="check-circle" class="h-5 w-5 mr-2" style="color: hsl(var(--success));"></i>
+                                <h4 class="text-lg font-semibold" style="color: hsl(var(--success));">Your Strengths</h4>
+                            </div>
+                            <div id="strengths-list" class="space-y-2">
+                                <!-- Strengths will be populated by JavaScript -->
+                            </div>
+                        </div>
+                        
+                        <!-- Areas for Improvement -->
+                        <div class="p-4 rounded-lg" style="background: hsl(var(--warning) / 0.1); border: 1px solid hsl(var(--warning) / 0.2);">
+                            <div class="flex items-center mb-3">
+                                <i data-lucide="trending-up" class="h-5 w-5 mr-2" style="color: hsl(var(--warning));"></i>
+                                <h4 class="text-lg font-semibold" style="color: hsl(var(--warning));">Areas to Improve</h4>
+                            </div>
+                            <div id="improvements-list" class="space-y-2">
+                                <!-- Improvements will be populated by JavaScript -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Analysis Grid -->
@@ -627,7 +653,7 @@
                     { word: 'you know', count: 3 }
                 ]
             },
-            overallScore: 74,
+            overall_score: 74,
             transcript: "Welcome everyone to this presentation. Um, today I'll be discussing the, uh, importance of effective communication in the workplace. You know, good communication is like the foundation of any successful team. Um, it helps us collaborate better and, uh, achieve our goals more efficiently. So let's dive into the key strategies that can help improve our communication skills."
         };
 
@@ -803,20 +829,11 @@
 
         function populateResults(data) {
             // Update overall score
-            document.getElementById('overall-score').textContent = data.overallScore;
-            document.getElementById('overall-progress').style.width = data.overallScore + '%';
-            
-            const badge = document.getElementById('overall-badge');
-            if (data.overallScore >= 80) {
-                badge.className = 'badge badge-success';
-                badge.textContent = 'Excellent';
-            } else if (data.overallScore >= 60) {
-                badge.className = 'badge badge-warning';
-                badge.textContent = 'Good';
-            } else {
-                badge.className = 'badge badge-destructive';
-                badge.textContent = 'Needs Improvement';
-            }
+            document.getElementById('overall-score').textContent = data.overall_score;
+            document.getElementById('overall-progress').style.width = data.overall_score + '%';
+
+            // Generate and populate performance summary
+            generatePerformanceSummary(data);
 
             // Populate analysis cards
             const analysisGrid = document.getElementById('analysis-grid');
@@ -852,19 +869,26 @@
                 <div class="card-glow p-6">
                     <div class="flex items-center mb-4">
                         <i data-lucide="heart" class="h-5 w-5 mr-2" style="color: hsl(var(--primary));"></i>
-                        <h3 class="text-lg font-semibold">Sentiment</h3>
+                        <h3 class="text-lg font-semibold">Speech Sentiment</h3>
                     </div>
                     <div class="space-y-4">
                         <div class="text-center">
-                            <div class="text-2xl font-bold mb-2">${data.sentiment.overall}</div>
-                            <span class="badge badge-outline">${data.sentiment.score > 0 ? 'Positive' : 'Negative'}</span>
+                            <div class="text-2xl font-bold mb-2" style="color: ${getSentimentColor(data.sentiment.overall)}">${data.sentiment.overall}</div>
+                            <span class="badge ${getSentimentBadgeClass(data.sentiment.overall)}">${getSentimentDescription(data.sentiment.overall)}</span>
                         </div>
-                        <div class="score-display">
-                            <span class="text-sm">Positivity Score</span>
-                            <span class="text-sm font-medium">${data.sentiment.positivity}%</span>
-                        </div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${data.sentiment.positivity}%"></div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span>Overall Tone</span>
+                                <span class="font-medium" style="color: ${getSentimentColor(data.sentiment.overall)}">${data.sentiment.positivity}%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${data.sentiment.positivity}%; background: ${getSentimentGradient(data.sentiment.positivity)}"></div>
+                            </div>
+                            <div class="flex justify-between text-xs" style="color: hsl(var(--muted-foreground));">
+                                <span>Negative</span>
+                                <span>Neutral</span>
+                                <span>Positive</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -877,15 +901,26 @@
                     </div>
                     <div class="space-y-4">
                         <div class="text-center">
-                            <div class="text-3xl font-bold mb-2">${data.eyeContact.percentage}%</div>
-                            <span class="badge ${getScoreBadgeClass(data.eyeContact.percentage)}">${data.eyeContact.rating}</span>
+                            <div class="text-3xl font-bold mb-2" style="color: ${getEyeContactColor(data.eyeContact.percentage)}">${data.eyeContact.percentage}%</div>
+                            <span class="badge ${getEyeContactBadgeClass(data.eyeContact.percentage)}">${getEyeContactDescription(data.eyeContact.percentage)}</span>
                         </div>
-                        <div class="text-center text-sm" style="color: hsl(var(--muted-foreground));">
-                            <i data-lucide="clock" class="h-4 w-4 inline mr-1"></i>
-                            Avg Duration: ${data.eyeContact.avgDuration}s
+                        <div class="text-xs mb-3 text-center" style="color: hsl(var(--muted-foreground));">
+                            Percentage of time looking directly at camera/audience
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 text-center">
+                            <div class="p-2 rounded" style="background: hsl(var(--muted) / 0.2);">
+                                <i data-lucide="clock" class="h-4 w-4 mx-auto mb-1" style="color: hsl(var(--primary));"></i>
+                                <div class="text-sm font-medium">${data.eyeContact.avgDuration}s</div>
+                                <div class="text-xs" style="color: hsl(var(--muted-foreground));">Avg Duration</div>
+                            </div>
+                            <div class="p-2 rounded" style="background: hsl(var(--muted) / 0.2);">
+                                <i data-lucide="target" class="h-4 w-4 mx-auto mb-1" style="color: hsl(var(--primary));"></i>
+                                <div class="text-sm font-medium">${getEyeContactTarget(data.eyeContact.percentage)}</div>
+                                <div class="text-xs" style="color: hsl(var(--muted-foreground));">Target Range</div>
+                            </div>
                         </div>
                         <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${data.eyeContact.percentage}%"></div>
+                            <div class="progress-fill" style="width: ${data.eyeContact.percentage}%; background: ${getEyeContactGradient(data.eyeContact.percentage)}"></div>
                         </div>
                     </div>
                 </div>
@@ -990,6 +1025,173 @@
             if (score >= 80) return 'badge-success';
             if (score >= 60) return 'badge-warning';
             return 'badge-destructive';
+        }
+
+        function getSentimentColor(sentiment) {
+            switch(sentiment) {
+                case 'Positive': return 'hsl(var(--success))';
+                case 'Negative': return 'hsl(var(--destructive))';
+                default: return 'hsl(var(--warning))';
+            }
+        }
+
+        function getSentimentBadgeClass(sentiment) {
+            switch(sentiment) {
+                case 'Positive': return 'badge-success';
+                case 'Negative': return 'badge-destructive';
+                default: return 'badge-warning';
+            }
+        }
+
+        function getSentimentDescription(sentiment) {
+            switch(sentiment) {
+                case 'Positive': return 'Upbeat & Engaging';
+                case 'Negative': return 'Needs More Energy';
+                default: return 'Balanced Tone';
+            }
+        }
+
+        function getSentimentGradient(positivity) {
+            if (positivity >= 70) return 'linear-gradient(90deg, hsl(var(--success)) 0%, hsl(var(--success)) 100%)';
+            if (positivity >= 40) return 'linear-gradient(90deg, hsl(var(--warning)) 0%, hsl(var(--warning)) 100%)';
+            return 'linear-gradient(90deg, hsl(var(--destructive)) 0%, hsl(var(--destructive)) 100%)';
+        }
+
+        function getEyeContactColor(percentage) {
+            if (percentage >= 70) return 'hsl(var(--success))';
+            if (percentage >= 50) return 'hsl(var(--warning))';
+            return 'hsl(var(--destructive))';
+        }
+
+        function getEyeContactBadgeClass(percentage) {
+            if (percentage >= 70) return 'badge-success';
+            if (percentage >= 50) return 'badge-warning';
+            return 'badge-destructive';
+        }
+
+        function getEyeContactDescription(percentage) {
+            if (percentage >= 70) return 'Strong Connection';
+            if (percentage >= 50) return 'Good Engagement';
+            if (percentage >= 30) return 'Needs Practice';
+            return 'Avoid Looking Away';
+        }
+
+        function getEyeContactTarget(percentage) {
+            if (percentage >= 70) return '70-80%';
+            return '60-80%';
+        }
+
+        function getEyeContactGradient(percentage) {
+            if (percentage >= 70) return 'linear-gradient(90deg, hsl(var(--success)) 0%, hsl(var(--success)) 100%)';
+            if (percentage >= 50) return 'linear-gradient(90deg, hsl(var(--warning)) 0%, hsl(var(--warning)) 100%)';
+            return 'linear-gradient(90deg, hsl(var(--destructive)) 0%, hsl(var(--destructive)) 100%)';
+        }
+
+        function generatePerformanceSummary(data) {
+            // Calculate individual metric scores  
+            const metrics = {
+                'Eye Contact': {
+                    score: data.eyeContact?.percentage || 0,
+                    weight: 25,
+                    strength: 'Strong audience connection',
+                    improvement: 'Practice maintaining consistent eye contact'
+                },
+                'Vocal Clarity': {
+                    score: data.vocalVariety?.clarity || 0,
+                    weight: 20,
+                    strength: 'Clear and articulate speech',
+                    improvement: 'Work on speech clarity and pronunciation'
+                },
+                'Vocal Volume': {
+                    score: data.vocalVariety?.volume || 0,
+                    weight: 15,
+                    strength: 'Good vocal projection',
+                    improvement: 'Adjust volume for better audience engagement'
+                },
+                'Speech Pace': {
+                    score: data.vocalVariety?.pace || 0,
+                    weight: 15,
+                    strength: 'Well-paced delivery',
+                    improvement: 'Practice varying speech pace for emphasis'
+                },
+                'Body Energy': {
+                    score: data.bodyLanguage?.energy || 0,
+                    weight: 15,
+                    strength: 'Energetic and engaging presence',
+                    improvement: 'Increase movement and gestures for more energy'
+                },
+                'Speech Tone': {
+                    score: data.sentiment?.positivity || 0,
+                    weight: 10,
+                    strength: 'Positive and engaging tone',
+                    improvement: 'Work on creating more positive speech patterns'
+                }
+            };
+
+            // Filter out filler words for improvement (special case)
+            const fillerScore = data.fillerWords?.percentage || 0;
+            if (fillerScore > 3) {
+                metrics['Fluency'] = {
+                    score: Math.max(0, 100 - (fillerScore * 10)),
+                    weight: 10,
+                    strength: 'Smooth speech delivery',
+                    improvement: `Reduce filler words (currently ${fillerScore}% of speech)`
+                };
+            }
+
+            // Sort metrics by score to identify strengths and weaknesses
+            const sortedMetrics = Object.entries(metrics)
+                .map(([name, data]) => ({ name, ...data }))
+                .sort((a, b) => b.score - a.score);
+
+            // Generate strengths (top 3 scores above 70)
+            const strengths = sortedMetrics
+                .filter(metric => metric.score >= 70)
+                .slice(0, 3)
+                .map(metric => `
+                    <div class="flex items-center text-sm">
+                        <i data-lucide="check" class="h-4 w-4 mr-2 flex-shrink-0" style="color: hsl(var(--success));"></i>
+                        <span><strong>${metric.name}:</strong> ${metric.strength} (${Math.round(metric.score)}%)</span>
+                    </div>
+                `);
+
+            // Generate improvements (bottom 3 scores, focusing on lowest)
+            const improvements = sortedMetrics
+                .filter(metric => metric.score < 70)
+                .slice(-3)
+                .reverse()
+                .map(metric => `
+                    <div class="flex items-start text-sm">
+                        <i data-lucide="arrow-up" class="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" style="color: hsl(var(--warning));"></i>
+                        <span><strong>${metric.name}:</strong> ${metric.improvement}</span>
+                    </div>
+                `);
+
+            // Handle edge cases
+            if (strengths.length === 0) {
+                strengths.push(`
+                    <div class="flex items-center text-sm">
+                        <i data-lucide="zap" class="h-4 w-4 mr-2 flex-shrink-0" style="color: hsl(var(--success));"></i>
+                        <span>You completed the analysis - that's the first step to improvement!</span>
+                    </div>
+                `);
+            }
+
+            if (improvements.length === 0) {
+                improvements.push(`
+                    <div class="flex items-start text-sm">
+                        <i data-lucide="star" class="h-4 w-4 mr-2 flex-shrink-0" style="color: hsl(var(--warning));"></i>
+                        <span>Keep practicing to maintain your excellent performance</span>
+                    </div>
+                `);
+            }
+
+            // Populate the UI
+            document.getElementById('strengths-list').innerHTML = strengths.join('');
+            document.getElementById('improvements-list').innerHTML = improvements.join('');
+
+            // Recreate icons
+            lucide.createIcons();
         }
 
         function setCurrentView(view) {

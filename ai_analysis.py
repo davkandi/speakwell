@@ -1073,19 +1073,25 @@ class VideoAnalyzer:
             weights.append(15)
         
         # Filler Words (weight: 5% - penalty)
-        if results.get('filler_words', {}).get('percentage'):
-            filler_penalty = min(20, results['filler_words']['percentage'] * 2)  # Max 20 point penalty
+        if results.get('filler_words', {}).get('percentage') is not None:
+            filler_percentage = results['filler_words']['percentage']
+            filler_penalty = min(20, filler_percentage * 2)  # Max 20 point penalty
             filler_score = 100 - filler_penalty
             scores.append(filler_score)
             weights.append(5)
+            logger.info(f"Filler words: {filler_percentage}% -> score: {filler_score}")
         
         # Calculate weighted average
+        logger.info(f"Overall score calculation - Scores: {scores}, Weights: {weights}")
         if scores and weights:
             total_weight = sum(weights)
             weighted_sum = sum(score * weight for score, weight in zip(scores, weights))
             overall_score = weighted_sum / total_weight
-            return round(max(0, min(100, overall_score)))
+            final_score = round(max(0, min(100, overall_score)))
+            logger.info(f"Calculated overall score: {final_score} (from weighted avg: {overall_score})")
+            return final_score
         
+        logger.warning("No valid scores found for overall calculation, returning default score of 50")
         return 50  # Default score if no analysis available
 
 
@@ -1216,17 +1222,23 @@ class LocalVideoAnalyzer:
             weights.append(15)
         
         # Filler Words (weight: 5% - penalty)
-        if results.get('filler_words', {}).get('percentage'):
-            filler_penalty = min(20, results['filler_words']['percentage'] * 2)  # Max 20 point penalty
+        if results.get('filler_words', {}).get('percentage') is not None:
+            filler_percentage = results['filler_words']['percentage']
+            filler_penalty = min(20, filler_percentage * 2)  # Max 20 point penalty
             filler_score = 100 - filler_penalty
             scores.append(filler_score)
             weights.append(5)
+            logger.info(f"Filler words: {filler_percentage}% -> score: {filler_score}")
         
         # Calculate weighted average
+        logger.info(f"Overall score calculation - Scores: {scores}, Weights: {weights}")
         if scores and weights:
             total_weight = sum(weights)
             weighted_sum = sum(score * weight for score, weight in zip(scores, weights))
             overall_score = weighted_sum / total_weight
-            return round(max(0, min(100, overall_score)))
+            final_score = round(max(0, min(100, overall_score)))
+            logger.info(f"Calculated overall score: {final_score} (from weighted avg: {overall_score})")
+            return final_score
         
+        logger.warning("No valid scores found for overall calculation, returning default score of 50")
         return 50  # Default score if no analysis available
